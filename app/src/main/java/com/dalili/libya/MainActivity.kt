@@ -9,6 +9,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -186,6 +187,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 return@setOnClickListener
             }
             startNavigation(route)
+        }
+
+        // Bottom sheet collapsed by default so the map stays visible.
+        // The summary + voice button stay outside the details area.
+        findViewById<Button>(R.id.buttonToggleDetails).setOnClickListener {
+            val details = findViewById<View>(R.id.scrollDetails)
+            val button = findViewById<Button>(R.id.buttonToggleDetails)
+            if (details.visibility == View.VISIBLE) {
+                details.visibility = View.GONE
+                button.text = "إظهار المزيد من التفاصيل"
+            } else {
+                details.visibility = View.VISIBLE
+                button.text = "إخفاء التفاصيل"
+            }
         }
 
         findViewById<Button>(R.id.button3d).setOnClickListener {
