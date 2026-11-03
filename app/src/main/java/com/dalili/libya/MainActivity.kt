@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var routes: List<RouteInfo> = emptyList()
     private var selectedRoute: RouteInfo? = null
     private var is3d = false
+    private var isPreviewAnimating = false
     private var useCurrentLocation = false
     private var currentLat: Double? = null
     private var currentLon: Double? = null
@@ -171,14 +172,37 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         findViewById<Button>(R.id.button3d).setOnClickListener {
             is3d = !is3d
-            val pitch = if (is3d) 60 else 0
-            webView.evaluateJavascript("window.setPitch($pitch);", null)
-            Toast.makeText(this, if (is3d) "عرض ثلاثي الأبعاد مفعّل" else "عرض مسطح", Toast.LENGTH_SHORT).show()
+            // set3d() in index.html flies to a building area at zoom 16
+            // with pitch 60 and re-adds the buildings layer. setPitch()
+            // alone did nothing visible at country zoom, because the
+            // buildings layer only renders at zoom 15+.
+            webView.evaluateJavascript("window.set3d($is3d);", null)
+            Toast.makeText(this, if (is3d) "عرض ثلاثي الأبعاد مفعّل — انتقل إلى منطقة مبانٍ" else "عرض مسطح", Toast.LENGTH_SHORT).show()
+        }
+
+        findViewById<Button>(R.id.buttonPreviewAnim).setOnClickListener {
+            val route = selectedRoute
+            if (route == null || route.coordinates.isEmpty()) {
+                Toast.makeText(this, "ابحث عن المسارات أولًا", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            isPreviewAnimating = !isPreviewAnimating
+            if (isPreviewAnimating) {
+                webView.evaluateJavascript("window.startPreviewAnimation();", null)
+                findViewById<Button>(R.id.buttonPreviewAnim).text = "إيقاف معاينة الرحلة المتحركة"
+            } else {
+                webView.evaluateJavascript("window.stopPreviewAnimation();", null)
+                findViewById<Button>(R.id.buttonPreviewAnim).text = "تشغيل معاينة الرحلة المتحركة"
+            }
         }
 
         findViewById<SeekBar>(R.id.seekPreview).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
+                    // Manual dragging overrides the automatic animation.
+                    webView.evaluateJavascript("window.stopPreviewAnimation();", null)
+                    isPreviewAnimating = false
+                    try { findViewById<Button>(R.id.buttonPreviewAnim).text = "تشغيل معاينة الرحلة المتحركة" } catch (e: Exception) {}
                     webView.evaluateJavascript("window.previewRoute(${progress / 100.0});", null)
                 }
             }
