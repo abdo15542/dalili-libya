@@ -159,6 +159,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 super.onPageFinished(view, url)
                 refreshReportsOnMap()
                 selectedRoute?.let { showRouteOnMap(it) }
+                // A reload resets the page's satellite flag, so re-apply
+                // satellite mode if it was on, or the button text and the
+                // map would disagree after "reload map".
+                if (isSatellite) {
+                    webView.evaluateJavascript("window.setSatellite(true);", null)
+                }
+            }
+            @Suppress("DEPRECATION")
+            override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                super.onReceivedError(view, errorCode, description, failingUrl)
+                Toast.makeText(this@MainActivity, "تعذر تحميل صفحة الخريطة ($description). تحقق من الاتصال أو اضغط «إعادة تحميل الخريطة».", Toast.LENGTH_LONG).show()
             }
         }
         webView.loadUrl("file:///android_asset/www/index.html")
@@ -256,6 +267,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             webView.evaluateJavascript("window.setSatellite($isSatellite);", null)
             findViewById<Button>(R.id.buttonSatellite).text = if (isSatellite) "العودة إلى الخريطة العادية" else "خريطة القمر الصناعي"
             Toast.makeText(this, if (isSatellite) "خريطة القمر الصناعي مفعّلة — صور جوية حقيقية" else "خريطة عادية", Toast.LENGTH_SHORT).show()
+        }
+
+        // Recovery buttons for the white-map / lost-route cases: reload
+        // the whole map page (route and reports are re-applied on finish),
+        // and re-fit the selected route after the user has panned away.
+        findViewById<Button>(R.id.buttonReloadMap).setOnClickListener {
+            webView.reload()
+            Toast.makeText(this, "جارٍ إعادة تحميل الخريطة…", Toast.LENGTH_SHORT).show()
+        }
+        findViewById<Button>(R.id.buttonShowRoute).setOnClickListener {
+            val route = selectedRoute
+            if (route == null) {
+                Toast.makeText(this, "ابحث عن المسارات أولًا", Toast.LENGTH_SHORT).show()
+            } else {
+                showRouteOnMap(route)
+                Toast.makeText(this, "تم عرض المسار كاملًا على الخريطة", Toast.LENGTH_SHORT).show()
+            }
         }
 
         findViewById<Button>(R.id.buttonNextRoute).setOnClickListener {
