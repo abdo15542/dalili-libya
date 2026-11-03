@@ -48,7 +48,67 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var currentLon: Double? = null
     private var lastFromName: String = ""
     private var lastToName: String = ""
+    private var lastFromLon: Double? = null
+    private var lastFromLat: Double? = null
+    private var lastToLon: Double? = null
+    private var lastToLat: Double? = null
+    private var travelMode: String = "driving"
+    private var isSatellite: Boolean = false
     private val httpClient = OkHttpClient()
+
+    private fun modeLabel(): String = when (travelMode) {
+        "cycling" -> "بالدراجة"
+        "walking" -> "مشيًا"
+        else -> "بالسيارة"
+    }
+
+    private fun updateModeButtons() {
+        val modes = listOf(
+            Triple(R.id.buttonModeCar, "driving", findViewById<Button>(R.id.buttonModeCar)),
+            Triple(R.id.buttonModeBike, "cycling", findViewById<Button>(R.id.buttonModeBike)),
+            Triple(R.id.buttonModeFoot, "walking", findViewById<Button>(R.id.buttonModeFoot))
+        )
+        for ((_, mode, button) in modes) {
+            if (mode == travelMode) {
+                button.setBackgroundResource(R.drawable.btn_primary_pill)
+                button.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
+            } else {
+                button.setBackgroundResource(R.drawable.btn_secondary_pill)
+                button.setTextColor(android.graphics.Color.parseColor("#0B6B4F"))
+            }
+        }
+    }
+
+    private fun refetchCurrentRoute() {
+        val flon = lastFromLon ?: return
+        val flat = lastFromLat ?: return
+        val tlon = lastToLon ?: return
+        val tlat = lastToLat ?: return
+        val fromName = lastFromName
+        val toName = lastToName
+        stopNavigation()
+        findViewById<TextView>(R.id.textStatus).text = "جارٍ حساب المسار $fromName إلى $toName ${modeLabel()}…"
+        Thread {
+            try {
+                val found = Routing.fetchRoutes(flon, flat, tlon, tlat, travelMode)
+                runOnUiThread {
+                    routes = found
+                    selectedRoute = found.firstOrNull()
+                    if (found.isEmpty()) {
+                        findViewById<TextView>(R.id.textStatus).text = "لم يتم العثور على مسار ${modeLabel()} بين المدينتين."
+                        findViewById<TextView>(R.id.textRoutes).text = ""
+                    } else {
+                        showRoutes(fromName, toName)
+                        selectedRoute?.let { showRouteOnMap(it) }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    findViewById<TextView>(R.id.textStatus).text = "تعذر حساب المسار: ${e.message}. تحقق من الاتصال بالإنترنت."
+                }
+            }
+        }.start()
+    }
 
     // Live navigation state: real GPS tracking, not a slider simulation.
     private var isNavigating = false
@@ -134,11 +194,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val fromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
             lastFromName = fromName
             lastToName = toCity.name
+            lastFromLon = fromLon
+            lastFromLat = fromLat
+            lastToLon = toCity.lon
+            lastToLat = toCity.lat
             stopNavigation()
-            findViewById<TextView>(R.id.textStatus).text = "جارٍ حساب المسارات من $fromName إلى ${toCity.name}…"
+            findViewById<TextView>(R.id.textStatus).text = "جارٍ حساب المسارات من $fromName إلى ${toCity.name} ${modeLabel()}…"
             Thread {
                 try {
-                    val found = Routing.fetchRoutes(fromLon, fromLat, toCity.lon, toCity.lat)
+                    val found = Routing.fetchRoutes(fromLon, fromLat, toCity.lon, toCity.lat, travelMode)
                     runOnUiThread {
                         routes = found
                         selectedRoute = found.firstOrNull()
@@ -156,6 +220,26 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
                 }
             }.start()
+        }
+
+        // Travel mode: car / bike / foot. Changing the mode re-fetches
+        // the current route with the OSRM profile for that mode, so the
+        // distance, route shape and estimated time all change accordingly.
+        findViewById<Button>(R.id.buttonModeCar).setOnClickListener {
+            travelMode = "driving"; updateModeButtons(); refetchCurrentRoute()
+        }
+        findViewById<Button>(R.id.buttonModeBike).setOnClickListener {
+            travelMode = "cycling"; updateModeButtons(); refetchCurrentRoute()
+        }
+        findViewById<Button>(R.id.buttonModeFoot).setOnClickListener {
+            travelMode = "walking"; updateModeButtons(); refetchCurrentRoute()
+        }
+        updateModeButtons()
+
+        findViewById<Button>(R.id.buttonSatellite).setOnClickListener {
+            isSatellite = !isSatellite
+            webView.evaluateJavascript("window.setSatellite($isSatellite);", null)
+            Toast.makeText(this, if (isSatellite) "خريطة القمر الصناعي مفعّلة — صور جوية حقيقية" else "خريطة عادية", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.buttonNextRoute).setOnClickListener {
@@ -400,7 +484,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val price = if (priceRaw >= 0) priceRaw else 0.15
         val reports = ReportsStore.load(this)
         val sb = StringBuilder()
-        sb.append("من $fromName إلى $toName\n")
+        sb.append("من $fromName إلى $toName — ${modeLabel()}\n")
         val sortedByTime = routes.sortedBy { it.durationMin }
         val sortedByCost = routes.sortedBy { it.distanceKm }
         routes.forEachIndexed { index, route ->
@@ -414,14 +498,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val minLon = route.coordinates.minOfOrNull { it.first } ?: 0.0
             val maxLon = route.coordinates.maxOfOrNull { it.first } ?: 0.0
             val nearCount = reports.count { it.lat in (minLat - 0.1)..(maxLat + 0.1) && it.lon in (minLon - 0.1)..(maxLon + 0.1) }
-            sb.append("\nالمسار ${index + 1}: ${"%.1f".format(route.distanceKm)} كم، ${route.durationMin.roundToInt()} دقيقة، وقود تقديري ${"%.1f".format(fuel)} لتر، تكلفة تقديرية ${"%.2f".format(cost)} دينار، درجة أمان تقديرية ${Routing.safetyScore(nearCount)}")
+            val fuelText = if (travelMode == "driving") "، وقود تقديري ${"%.1f".format(fuel)} لتر، تكلفة تقديرية ${"%.2f".format(cost)} دينار" else "، بدون وقود"
+            sb.append("\nالمسار ${index + 1}: ${"%.1f".format(route.distanceKm)} كم، ${route.durationMin.roundToInt()} دقيقة$ fuelText، درجة أمان تقديرية ${Routing.safetyScore(nearCount)}")
             if (fastest) sb.append(" — الأسرع")
             if (cheapest) sb.append(" — الأقل مسافة")
             if (route == selectedRoute) sb.append(" — المعروض على الخريطة")
         }
         sb.append("\n\nدرجة الأمان تقدير من بلاغات قريبة من هذا المسار فقط، وليست تصنيفًا رسميًا.")
         findViewById<TextView>(R.id.textRoutes).text = sb.toString()
-        findViewById<TextView>(R.id.textStatus).text = "تم العثور على ${routes.size} مسارًا."
+        findViewById<TextView>(R.id.textStatus).text = "تم العثور على ${routes.size} مسارًا — ${modeLabel()}."
         // Once a route is found, collapse both panels to a slim top bar
         // and a short bottom summary, so the map itself dominates the screen.
         try {
