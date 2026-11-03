@@ -113,10 +113,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     // Live navigation state: real GPS tracking, not a slider simulation.
     private var isNavigating = false
     private var navStepIndex = 0
+    private var isFollowing = false
+    private var lastNavLat: Double? = null
+    private var lastNavLon: Double? = null
+    private var lastNavBearing: Float = 0f
     private var locationManager: LocationManager? = null
     private val navListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            onNavLocation(location.latitude, location.longitude)
+            onNavLocation(location.latitude, location.longitude, if (location.hasBearing()) location.bearing else 0f)
         }
         override fun onProviderEnabled(provider: String) {}
         override fun onProviderDisabled(provider: String) {}
@@ -136,6 +140,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 runOnUiThread {
                     isPreviewAnimating = false
                     try { findViewById<Button>(R.id.buttonPreviewAnim).text = "تشغيل معاينة الرحلة المتحركة" } catch (e: Exception) {}
+                }
+            }
+            @JavascriptInterface
+            fun onMapDragged() {
+                runOnUiThread {
+                    // User dragged the map during navigation: pause
+                    // following and offer the recenter button.
+                    if (isNavigating && isFollowing) {
+                        isFollowing = false
+                        try { findViewById<Button>(R.id.buttonRecenter).visibility = View.VISIBLE } catch (e: Exception) {}
+                    }
                 }
             }
         }, "DaliliBridge")
@@ -254,6 +269,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             showRoutes(lastFromName, lastToName)
             selectedRoute?.let { showRouteOnMap(it) }
             Toast.makeText(this, "المسار ${nextIndex + 1} معروض على الخريطة", Toast.LENGTH_SHORT).show()
+        }
+
+        // Navigation banner controls: stop navigation, and recenter after dragging.
+        findViewById<Button>(R.id.buttonNavStop).setOnClickListener {
+            stopNavigation()
+            Toast.makeText(this, "تم إيقاف الملاحة", Toast.LENGTH_SHORT).show()
+        }
+        findViewById<Button>(R.id.buttonRecenter).setOnClickListener {
+            isFollowing = true
+            findViewById<Button>(R.id.buttonRecenter).visibility = View.GONE
+            val lat = lastNavLat
+            val lon = lastNavLon
+            if (lat != null && lon != null) {
+                webView.evaluateJavascript("window.followUser($lon, $lat, $lastNavBearing);", null)
+            }
         }
 
         findViewById<Button>(R.id.buttonVoice).setOnClickListener {
@@ -443,6 +473,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         isNavigating = true
         navStepIndex = 0
+        isFollowing = true
+        // Google Maps-style navigation view: hide the search and route
+        // sheets and show only the instruction banner on top.
+        try {
+            findViewById<View>(R.id.navBar).visibility = View.VISIBLE
+            findViewById<View>(R.id.topCard).visibility = View.GONE
+            findViewById<View>(R.id.bottomCard).visibility = View.GONE
+            findViewById<Button>(R.id.buttonRecenter).visibility = View.GONE
+        } catch (e: Exception) {}
         speakStep(route, 0)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         try {
@@ -456,20 +495,62 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun stopNavigation() {
         if (!isNavigating) return
         isNavigating = false
+        isFollowing = false
         try { locationManager?.removeUpdates(navListener) } catch (e: Exception) {}
         tts?.stop()
-        try { findViewById<Button>(R.id.buttonVoice).text = getString(R.string.voice_nav) } catch (e: Exception) {}
+        try {
+            findViewById<Button>(R.id.buttonVoice).text = getString(R.string.voice_nav)
+            findViewById<View>(R.id.navBar).visibility = View.GONE
+            findViewById<View>(R.id.topCard).visibility = View.VISIBLE
+            findViewById<View>(R.id.bottomCard).visibility = View.VISIBLE
+            findViewById<Button>(R.id.buttonRecenter).visibility = View.GONE
+        } catch (e: Exception) {}
+    }
+
+    // Navigation banner: current instruction on top, remaining distance,
+    // time and arrival time below it, from the real per-step OSRM values.
+    private fun updateNavBanner(route: RouteInfo, stepIndex: Int) {
+        try {
+            val stepText = if (stepIndex in route.steps.indices) route.steps[stepIndex].text else "ابدأ الرحلة"
+            findViewById<TextView>(R.id.textNavStep).text = stepText
+            var remKm = 0.0
+            var remMin = 0.0
+            for (i in stepIndex until route.steps.size) {
+                remKm += route.steps[i].distanceKm
+                remMin += route.steps[i].durationMin
+            }
+            if (remKm == 0.0 && remMin == 0.0) {
+                remKm = route.distanceKm
+                remMin = route.durationMin
+            }
+            val arrival = java.util.Calendar.getInstance()
+            arrival.add(java.util.Calendar.MINUTE, remMin.roundToInt())
+            val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+            findViewById<TextView>(R.id.textNavEta).text =
+                "باقي ${"%.1f".format(remKm)} كم — ${remMin.roundToInt()} دقيقة — الوصول ${timeFmt.format(arrival.time)}"
+        } catch (e: Exception) {}
     }
 
     private fun speakStep(route: RouteInfo, index: Int) {
         if (index in route.steps.indices) {
+            updateNavBanner(route, index)
             tts?.speak(route.steps[index].text, TextToSpeech.QUEUE_FLUSH, null, "nav$index")
         }
     }
 
-    private fun onNavLocation(lat: Double, lon: Double) {
+    private fun onNavLocation(lat: Double, lon: Double, bearing: Float) {
         val route = selectedRoute ?: return
         if (!isNavigating) return
+        lastNavLat = lat
+        lastNavLon = lon
+        lastNavBearing = bearing
+        // Driving view: while following is on, the map centres on the
+        // user at street zoom and rotates to the heading, so the street
+        // being driven on is always in the centre, like Google Maps.
+        if (isFollowing) {
+            webView.evaluateJavascript("window.followUser($lon, $lat, $bearing);", null)
+        }
+        updateNavBanner(route, navStepIndex)
         // Speak the next step when the user is within 200 metres of its manoeuvre.
         var next = navStepIndex + 1
         while (next in route.steps.indices) {
