@@ -21,8 +21,11 @@ data class RouteInfo(
 object Routing {
     private val client = OkHttpClient()
 
-    fun fetchRoutes(fromLon: Double, fromLat: Double, toLon: Double, toLat: Double): List<RouteInfo> {
-        val url = "https://router.project-osrm.org/route/v1/driving/" +
+    // OSRM demo profiles: driving, cycling, walking. Duration and geometry
+    // are profile-specific, so the estimated time differs by travel mode.
+    fun fetchRoutes(fromLon: Double, fromLat: Double, toLon: Double, toLat: Double, profile: String = "driving"): List<RouteInfo> {
+        val safeProfile = when (profile) { "cycling", "walking" -> profile else -> "driving" }
+        val url = "https://router.project-osrm.org/route/v1/$safeProfile/" +
             "$fromLon,$fromLat;$toLon,$toLat" +
             "?overview=full&geometries=geojson&steps=true&alternatives=true"
         val request = Request.Builder().url(url).build()
@@ -84,7 +87,7 @@ object Routing {
     fun arabicInstruction(type: String, modifier: String, roadName: String): String {
         val road = if (roadName.isNotBlank()) " على $roadName" else ""
         return when (type) {
-            "depart" -> "ابدأ القيادة$road"
+            "depart" -> "ابدأ الرحلة$road"
             "arrive" -> "لقد وصلت إلى وجهتك"
             "turn" -> when (modifier) {
                 "left" -> "انعطف يسارًا$road"
