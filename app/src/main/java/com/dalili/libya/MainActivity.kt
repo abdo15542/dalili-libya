@@ -189,6 +189,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             startNavigation(route)
         }
 
+        // Top search bar: collapses to a slim bar so the map stays visible.
+        findViewById<Button>(R.id.buttonToggleSearch).setOnClickListener {
+            val details = findViewById<View>(R.id.topDetails)
+            val button = findViewById<Button>(R.id.buttonToggleSearch)
+            if (details.visibility == View.VISIBLE) {
+                details.visibility = View.GONE
+                button.text = "بحث"
+            } else {
+                details.visibility = View.VISIBLE
+                button.text = "إخفاء البحث"
+            }
+        }
+
         // Bottom sheet collapsed by default so the map stays visible.
         // The summary + voice button stay outside the details area.
         findViewById<Button>(R.id.buttonToggleDetails).setOnClickListener {
@@ -409,6 +422,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         sb.append("\n\nدرجة الأمان تقدير من بلاغات قريبة من هذا المسار فقط، وليست تصنيفًا رسميًا.")
         findViewById<TextView>(R.id.textRoutes).text = sb.toString()
         findViewById<TextView>(R.id.textStatus).text = "تم العثور على ${routes.size} مسارًا."
+        // Once a route is found, collapse both panels to a slim top bar
+        // and a short bottom summary, so the map itself dominates the screen.
+        try {
+            findViewById<View>(R.id.topDetails).visibility = View.GONE
+            findViewById<Button>(R.id.buttonToggleSearch).text = "بحث"
+            findViewById<View>(R.id.scrollDetails).visibility = View.GONE
+            findViewById<Button>(R.id.buttonToggleDetails).text = "إظهار المزيد من التفاصيل"
+        } catch (e: Exception) {}
     }
 
     private fun showRouteOnMap(route: RouteInfo) {
