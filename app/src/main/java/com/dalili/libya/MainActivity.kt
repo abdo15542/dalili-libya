@@ -4,11 +4,15 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -21,11 +25,14 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var webView: WebView
@@ -36,7 +43,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var useCurrentLocation = false
     private var currentLat: Double? = null
     private var currentLon: Double? = null
+    private var lastFromName: String = ""
+    private var lastToName: String = ""
     private val httpClient = OkHttpClient()
+
+    // Live navigation state: real GPS tracking, not a slider simulation.
+    private var isNavigating = false
+    private var navStepIndex = 0
+    private var locationManager: LocationManager? = null
+    private val navListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            onNavLocation(location.latitude, location.longitude)
+        }
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,10 +66,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         webView = findViewById(R.id.webView)
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 refreshReportsOnMap()
+                selectedRoute?.let { showRouteOnMap(it) }
             }
         }
         webView.loadUrl("file:///android_asset/www/index.html")
@@ -62,6 +85,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         spinnerTo.adapter = adapter
         spinnerFrom.setSelection(cityNames.indexOf("زليتن"))
         spinnerTo.setSelection(cityNames.indexOf("طرابلس"))
+        // If the user picks a city manually after using current location,
+        // the city becomes the origin again instead of silently keeping GPS.
+        spinnerFrom.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                useCurrentLocation = false
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         val spinnerReport: Spinner = findViewById(R.id.spinnerReportType)
         val reportTypes = listOf("زحام", "حادث", "صيانة", "إغلاق", "طريق ترابي")
@@ -81,6 +112,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val fromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
             val fromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
             val fromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
+            lastFromName = fromName
+            lastToName = toCity.name
+            stopNavigation()
             findViewById<TextView>(R.id.textStatus).text = "جارٍ حساب المسارات من $fromName إلى ${toCity.name}…"
             Thread {
                 try {
@@ -88,8 +122,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     runOnUiThread {
                         routes = found
                         selectedRoute = found.firstOrNull()
-                        showRoutes(fromName, toCity.name)
-                        selectedRoute?.let { showRouteOnMap(it) }
+                        if (found.isEmpty()) {
+                            findViewById<TextView>(R.id.textStatus).text = "لم يتم العثور على مسار بين المدينتين."
+                            findViewById<TextView>(R.id.textRoutes).text = ""
+                        } else {
+                            showRoutes(fromName, toCity.name)
+                            selectedRoute?.let { showRouteOnMap(it) }
+                        }
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
@@ -99,14 +138,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }.start()
         }
 
+        findViewById<Button>(R.id.buttonNextRoute).setOnClickListener {
+            if (routes.isEmpty()) {
+                Toast.makeText(this, "ابحث عن المسارات أولًا", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val currentIndex = routes.indexOf(selectedRoute)
+            val nextIndex = if (currentIndex < 0) 0 else (currentIndex + 1) % routes.size
+            selectedRoute = routes[nextIndex]
+            showRoutes(lastFromName, lastToName)
+            selectedRoute?.let { showRouteOnMap(it) }
+            Toast.makeText(this, "المسار ${nextIndex + 1} معروض على الخريطة", Toast.LENGTH_SHORT).show()
+        }
+
         findViewById<Button>(R.id.buttonVoice).setOnClickListener {
             val route = selectedRoute
             if (route == null) {
                 Toast.makeText(this, "اختر مسارًا أولًا", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val text = if (route.steps.isNotEmpty()) route.steps.joinToString(". ") else "ابدأ القيادة على المسار المحدد."
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nav")
+            if (isNavigating) {
+                stopNavigation()
+                Toast.makeText(this, "تم إيقاف الملاحة الصوتية", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (route.steps.isEmpty()) {
+                Toast.makeText(this, "لا توجد تعليمات صوتية لهذا المسار", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            startNavigation(route)
         }
 
         findViewById<Button>(R.id.button3d).setOnClickListener {
@@ -137,7 +197,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             ReportsStore.add(this, RoadReport(type, mid.second, mid.first, System.currentTimeMillis()))
             refreshReportsList()
             refreshReportsOnMap()
-            Toast.makeText(this, "تم حفظ البلاغ محليًا. بلاغ مستخدم، غير مؤكد رسميًا.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "تم حفظ البلاغ محليًا على جهازك فقط. بلاغ مستخدم، غير مؤكد رسميًا.", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.buttonFuel).setOnClickListener {
@@ -146,28 +206,31 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 Toast.makeText(this, "اختر مسارًا أولًا", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val mid = route.coordinates[route.coordinates.size / 2]
-            findViewById<TextView>(R.id.textFuel).text = "جارٍ البحث عن محطات وقود قريبة…"
+            findViewById<TextView>(R.id.textFuel).text = "جارٍ البحث عن محطات وقود على طول المسار…"
             Thread {
                 try {
-                    // Search only inside a box around the route midpoint, so results are
-                    // actually near the route instead of anywhere in the world.
-                    val lon = mid.first
-                    val lat = mid.second
-                    val url = "https://nominatim.openstreetmap.org/search?format=json&q=fuel&viewbox=${lon - 0.5},${lat + 0.5},${lon + 0.5},${lat - 0.5}&bounded=1&limit=5"
-                    val request = Request.Builder().url(url).header("User-Agent", "DaliliLibya/1.0").build()
-                    httpClient.newCall(request).execute().use { response ->
-                        val body = response.body?.string() ?: "[]"
-                        val arr = org.json.JSONArray(body)
-                        val names = mutableListOf<String>()
-                        for (i in 0 until arr.length()) {
-                            names.add(arr.getJSONObject(i).optString("display_name"))
+                    // Search at three points along the real route, not only the midpoint.
+                    val points = listOf(0.25, 0.5, 0.75).map { frac ->
+                        val idx = (frac * (route.coordinates.size - 1)).toInt().coerceIn(0, route.coordinates.size - 1)
+                        route.coordinates[idx]
+                    }
+                    val foundNames = linkedSetOf<String>()
+                    for ((lon, lat) in points) {
+                        val url = "https://nominatim.openstreetmap.org/search?format=json&q=fuel&viewbox=${lon - 0.5},${lat + 0.5},${lon + 0.5},${lat - 0.5}&bounded=1&limit=5"
+                        val request = Request.Builder().url(url).header("User-Agent", "DaliliLibya/1.0").build()
+                        httpClient.newCall(request).execute().use { response ->
+                            val body = response.body?.string() ?: "[]"
+                            val arr = org.json.JSONArray(body)
+                            for (i in 0 until arr.length()) {
+                                foundNames.add(arr.getJSONObject(i).optString("display_name"))
+                            }
                         }
-                        runOnUiThread {
-                            findViewById<TextView>(R.id.textFuel).text =
-                                if (names.isEmpty()) "لم يتم العثور على محطات وقود قريبة في بيانات OpenStreetMap."
-                                else names.joinToString("\n• ", prefix = "محطات قريبة:\n• ")
-                        }
+                    }
+                    val names = foundNames.filter { it.isNotBlank() }.take(10)
+                    runOnUiThread {
+                        findViewById<TextView>(R.id.textFuel).text =
+                            if (names.isEmpty()) "لم يتم العثور على محطات وقود قريبة من المسار في بيانات OpenStreetMap."
+                            else names.joinToString("\n• ", prefix = "محطات على طول المسار:\n• ")
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
@@ -182,19 +245,90 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            tts?.language = Locale("ar")
+            val result = tts?.setLanguage(Locale("ar"))
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                tts?.language = Locale.getDefault()
+            }
         }
     }
 
     override fun onDestroy() {
+        stopNavigation()
         tts?.shutdown()
         super.onDestroy()
     }
 
+    private fun startNavigation(route: RouteInfo) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // No GPS: fall back to reading all Arabic instructions once.
+            val text = route.steps.joinToString(". ") { it.text }
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nav")
+            Toast.makeText(this, "بدون إذن الموقع، تمت قراءة التعليمات كاملة بدل الملاحة الحية.", Toast.LENGTH_LONG).show()
+            return
+        }
+        isNavigating = true
+        navStepIndex = 0
+        speakStep(route, 0)
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        try {
+            @SuppressLint("MissingPermission")
+            locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 10f, navListener)
+        } catch (e: Exception) {
+            Toast.makeText(this, "تعذر بدء تتبع الموقع: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+        findViewById<Button>(R.id.buttonVoice).text = "إيقاف الملاحة الصوتية"
+    }
+
+    private fun stopNavigation() {
+        if (!isNavigating) return
+        isNavigating = false
+        try { locationManager?.removeUpdates(navListener) } catch (e: Exception) {}
+        tts?.stop()
+        try { findViewById<Button>(R.id.buttonVoice).text = getString(R.string.voice_nav) } catch (e: Exception) {}
+    }
+
+    private fun speakStep(route: RouteInfo, index: Int) {
+        if (index in route.steps.indices) {
+            tts?.speak(route.steps[index].text, TextToSpeech.QUEUE_FLUSH, null, "nav$index")
+        }
+    }
+
+    private fun onNavLocation(lat: Double, lon: Double) {
+        val route = selectedRoute ?: return
+        if (!isNavigating) return
+        // Speak the next step when the user is within 200 metres of its manoeuvre.
+        var next = navStepIndex + 1
+        while (next in route.steps.indices) {
+            val step = route.steps[next]
+            if (step.lon == 0.0 && step.lat == 0.0) { next++; continue }
+            val dist = distanceMetres(lat, lon, step.lat, step.lon)
+            if (dist <= 200.0) {
+                navStepIndex = next
+                speakStep(route, next)
+                return
+            }
+            break
+        }
+        if (navStepIndex >= route.steps.size - 1) {
+            stopNavigation()
+        }
+    }
+
+    private fun distanceMetres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2) * sin(dLat / 2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2) * sin(dLon / 2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return r * c
+    }
+
     private fun showRoutes(fromName: String, toName: String) {
-        val consumption = findViewById<EditText>(R.id.editConsumption).text.toString().toDoubleOrNull() ?: 8.0
-        val price = findViewById<EditText>(R.id.editFuelPrice).text.toString().toDoubleOrNull() ?: 0.15
-        val reportCount = ReportsStore.load(this).size
+        val consumptionRaw = findViewById<EditText>(R.id.editConsumption).text.toString().toDoubleOrNull() ?: 8.0
+        val consumption = if (consumptionRaw > 0) consumptionRaw else 8.0
+        val priceRaw = findViewById<EditText>(R.id.editFuelPrice).text.toString().toDoubleOrNull() ?: 0.15
+        val price = if (priceRaw >= 0) priceRaw else 0.15
+        val reports = ReportsStore.load(this)
         val sb = StringBuilder()
         sb.append("من $fromName إلى $toName\n")
         val sortedByTime = routes.sortedBy { it.durationMin }
@@ -204,12 +338,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val cost = fuel * price
             val fastest = route == sortedByTime.firstOrNull()
             val cheapest = route == sortedByCost.firstOrNull()
-            sb.append("\nالمسار ${index + 1}: ${"%.1f".format(route.distanceKm)} كم، ${route.durationMin.roundToInt()} دقيقة، وقود تقديري ${"%.1f".format(fuel)} لتر، تكلفة تقديرية ${"%.2f".format(cost)} دينار، درجة أمان تقديرية ${Routing.safetyScore(reportCount)}")
+            // Safety is only from reports whose coordinates fall near this route.
+            val minLat = route.coordinates.minOfOrNull { it.second } ?: 0.0
+            val maxLat = route.coordinates.maxOfOrNull { it.second } ?: 0.0
+            val minLon = route.coordinates.minOfOrNull { it.first } ?: 0.0
+            val maxLon = route.coordinates.maxOfOrNull { it.first } ?: 0.0
+            val nearCount = reports.count { it.lat in (minLat - 0.1)..(maxLat + 0.1) && it.lon in (minLon - 0.1)..(maxLon + 0.1) }
+            sb.append("\nالمسار ${index + 1}: ${"%.1f".format(route.distanceKm)} كم، ${route.durationMin.roundToInt()} دقيقة، وقود تقديري ${"%.1f".format(fuel)} لتر، تكلفة تقديرية ${"%.2f".format(cost)} دينار، درجة أمان تقديرية ${Routing.safetyScore(nearCount)}")
             if (fastest) sb.append(" — الأسرع")
             if (cheapest) sb.append(" — الأقل مسافة")
-            if (index == 0) sb.append(" — المعروض على الخريطة")
+            if (route == selectedRoute) sb.append(" — المعروض على الخريطة")
         }
-        sb.append("\n\nدرجة الأمان تقدير من نوع الطريق وبلاغات المستخدمين، وليست تصنيفًا رسميًا.")
+        sb.append("\n\nدرجة الأمان تقدير من بلاغات قريبة من هذا المسار فقط، وليست تصنيفًا رسميًا.")
         findViewById<TextView>(R.id.textRoutes).text = sb.toString()
         findViewById<TextView>(R.id.textStatus).text = "تم العثور على ${routes.size} مسارًا."
     }
@@ -223,7 +363,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val reports = ReportsStore.load(this)
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
         val text = if (reports.isEmpty()) {
-            "لا توجد بلاغات محلية بعد."
+            "لا توجد بلاغات محلية بعد. البلاغات محفوظة على جهازك فقط."
         } else {
             reports.joinToString("\n") { r ->
                 "• ${r.type} — ${fmt.format(Date(r.timeMillis))} — بلاغ مستخدم، غير مؤكد رسميًا."
@@ -233,6 +373,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun refreshReportsOnMap() {
+        webView.evaluateJavascript("window.clearReports();", null)
         val reports = ReportsStore.load(this)
         for (r in reports) {
             val js = "window.addReport(${r.lon}, ${r.lat}, '${r.type}');"
@@ -262,8 +403,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            requestLocation()
+        if (requestCode == 1001) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                requestLocation()
+            } else {
+                Toast.makeText(this, "تم رفض إذن الموقع، لذلك لا يمكن استخدام موقعك الحالي.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 }
