@@ -76,6 +76,14 @@ map.on('load', function() {
   addRouteLayer();
 });
 
+// A style change (including the CARTO fallback) removes custom layers,
+// so buildings and the route must be re-added after every style load,
+// not only on the first map load.
+map.on('style.load', function() {
+  addBuildings();
+  addRouteLayer();
+});
+
 // If tiles still have not loaded after 12 seconds, switch to the fallback style once.
 // This is what fixes the blank white map when the primary tile style is unreachable.
 var fallbackTried = false;
@@ -85,7 +93,6 @@ setTimeout(function() {
       fallbackTried = true;
       styleIndex = 1;
       map.setStyle(styleUrls[1]);
-      map.once('style.load', function() { addRouteLayer(); });
       document.getElementById('note').textContent = 'تم التبديل إلى نمط خريطة بديل — جارٍ تحميل البلاطات…';
     }
   } catch (e) { console.log('fallback: ' + e); }
@@ -118,10 +125,55 @@ window.previewRoute = function(progress) {
   var pos = routeCoords[idx];
   if (!marker) { marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat(pos).addTo(map); }
   else { marker.setLngLat(pos); }
+  // At country zoom the moving marker is almost invisible, so zoom in
+  // for the preview instead of staying at zoom 5.5 or 8.
+  if (map.getZoom() < 11) { map.setZoom(11); }
   map.setCenter(pos);
 };
 
+// Automatic animated preview (the "4D" preview): moves the marker along
+// the whole route over 30 seconds, instead of only dragging the slider.
+var previewAnimId = null;
+var previewAnimStart = 0;
+window.startPreviewAnimation = function() {
+  if (!routeCoords.length) return false;
+  window.stopPreviewAnimation();
+  previewAnimStart = Date.now();
+  function step() {
+    var p = Math.min(1, (Date.now() - previewAnimStart) / 30000);
+    window.previewRoute(p);
+    if (p < 1) { previewAnimId = requestAnimationFrame(step); }
+    else { previewAnimId = null; }
+  }
+  step();
+  return true;
+};
+window.stopPreviewAnimation = function() {
+  if (previewAnimId) { cancelAnimationFrame(previewAnimId); previewAnimId = null; }
+};
+
 window.setPitch = function(pitch) { map.setPitch(pitch); };
+
+// Real 3D: pitch alone does nothing visible at country zoom, because the
+// buildings layer only renders at zoom 15+. So enabling 3D also flies to
+// a building area (the current marker, or Tripoli) at zoom 16 with pitch 60,
+// and re-adds the buildings layer. If the fallback CARTO style is active,
+// it first switches back to OpenFreeMap, whose source is openmaptiles.
+function apply3d() {
+  addBuildings();
+  var target = marker ? marker.getLngLat() : [13.1913, 32.8872];
+  map.flyTo({ center: target, zoom: 16, pitch: 60, duration: 1500 });
+}
+window.set3d = function(enabled) {
+  if (!enabled) { map.setPitch(0); return; }
+  if (styleIndex !== 0) {
+    styleIndex = 0;
+    map.setStyle(styleUrls[0]);
+    map.once('style.load', function() { apply3d(); });
+    return;
+  }
+  apply3d();
+};
 
 window.setMarker = function(lon, lat) {
   if (!marker) { marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat([lon, lat]).addTo(map); }
