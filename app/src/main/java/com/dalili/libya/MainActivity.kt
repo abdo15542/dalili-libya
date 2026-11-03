@@ -9,6 +9,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -68,6 +69,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun onPreviewFinished() {
+                runOnUiThread {
+                    isPreviewAnimating = false
+                    try { findViewById<Button>(R.id.buttonPreviewAnim).text = "تشغيل معاينة الرحلة المتحركة" } catch (e: Exception) {}
+                }
+            }
+        }, "DaliliBridge")
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -102,6 +112,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         spinnerReport.adapter = reportAdapter
 
         tts = TextToSpeech(this, this)
+
+        findViewById<Button>(R.id.buttonSwap).setOnClickListener {
+            val fromPos = spinnerFrom.selectedItemPosition
+            val toPos = spinnerTo.selectedItemPosition
+            spinnerFrom.setSelection(toPos)
+            spinnerTo.setSelection(fromPos)
+            Toast.makeText(this, "تم تبديل الاتجاه", Toast.LENGTH_SHORT).show()
+        }
 
         findViewById<Button>(R.id.buttonLocation).setOnClickListener {
             requestLocation()
