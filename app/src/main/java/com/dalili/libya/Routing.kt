@@ -21,13 +21,39 @@ data class RouteInfo(
 object Routing {
     private val client = OkHttpClient()
 
-    // OSRM demo profiles: driving, cycling, walking. Duration and geometry
-    // are profile-specific, so the estimated time differs by travel mode.
+    // CRITICAL, verified 2026-11-03 by live API tests: the demo server
+    // router.project-osrm.org IGNORES the profile in the URL — it returns
+    // the car route even for "cycling", "walking" and even a nonsense
+    // profile (Zliten→Tripoli always 154.5 km / 105 min). That is why
+    // switching to bike/foot in v3.2 changed nothing. The real fix is a
+    // different OSRM server per mode, run by FOSSGIS/OpenStreetMap:
+    // routed-car / routed-bike / routed-foot. Live test, Zliten→Tripoli:
+    // car 154.5 km / 105 min, bike 192.9 km / 810 min, foot 174.2 km / 2369 min.
+    // The profile segment in the path is ignored by these servers too, so
+    // the server instance itself is what selects the mode.
     fun fetchRoutes(fromLon: Double, fromLat: Double, toLon: Double, toLat: Double, profile: String = "driving"): List<RouteInfo> {
-        val safeProfile = when (profile) { "cycling", "walking" -> profile else -> "driving" }
-        val url = "https://router.project-osrm.org/route/v1/$safeProfile/" +
+        val server = when (profile) {
+            "cycling" -> "routed-bike"
+            "walking" -> "routed-foot"
+            else -> "routed-car"
+        }
+        val url = "https://routing.openstreetmap.de/$server/route/v1/driving/" +
             "$fromLon,$fromLat;$toLon,$toLat" +
             "?overview=full&geometries=geojson&steps=true&alternatives=true"
+        return try {
+            fetchFromUrl(url)
+        } catch (e: Exception) {
+            // Fallback only for driving: the old demo server is car-only,
+            // so using it for bike/foot would silently show a car time again.
+            if (profile == "driving") {
+                fetchFromUrl("https://router.project-osrm.org/route/v1/driving/" +
+                    "$fromLon,$fromLat;$toLon,$toLat" +
+                    "?overview=full&geometries=geojson&steps=true&alternatives=true")
+            } else throw e
+        }
+    }
+
+    private fun fetchFromUrl(url: String): List<RouteInfo> {
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw RuntimeException("OSRM error: ${response.code}")
