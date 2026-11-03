@@ -7,7 +7,11 @@ import org.json.JSONObject
 data class StepInfo(
     val text: String,
     val lon: Double,
-    val lat: Double
+    val lat: Double,
+    // Per-step distance/duration from OSRM, so the navigation banner can
+    // show the real remaining distance, time and arrival time.
+    val distanceKm: Double = 0.0,
+    val durationMin: Double = 0.0
 )
 
 data class RouteInfo(
@@ -88,7 +92,7 @@ object Routing {
                                 val lon = loc?.optDouble(0) ?: 0.0
                                 val lat = loc?.optDouble(1) ?: 0.0
                                 val text = arabicInstruction(type, modifier, name)
-                                if (text.isNotBlank()) steps.add(StepInfo(text, lon, lat))
+                                if (text.isNotBlank()) steps.add(StepInfo(text, lon, lat, s.optDouble("distance") / 1000.0, s.optDouble("duration") / 60.0))
                             }
                         }
                     }
