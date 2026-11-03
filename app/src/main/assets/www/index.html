@@ -100,9 +100,81 @@ function addRouteLayer() {
   }
 }
 
+// Map modes (mutually exclusive, managed by Kotlin): satellite photos,
+// dark vector style, topographic raster, or the normal vector style.
+// Only the normal style uses the tile-fallback timer below.
+var satelliteOn = false;
+var darkOn = false;
+var topoOn = false;
+function restoreVectorStyle() {
+  satelliteOn = false; darkOn = false; topoOn = false;
+  try { map.setMaxZoom(19); } catch (e) {}
+  map.setStyle(styleUrls[styleIndex]);
+}
+window.setDark = function(on) {
+  try {
+    if (on) {
+      darkOn = true; satelliteOn = false; topoOn = false;
+      map.easeTo({ pitch: 0, duration: 300 });
+      map.setStyle('https://tiles.openfreemap.org/styles/dark');
+    } else { restoreVectorStyle(); }
+  } catch (e) { console.log('dark: ' + e); }
+};
+window.setTopo = function(on) {
+  try {
+    if (on) {
+      topoOn = true; satelliteOn = false; darkOn = false;
+      if (map.getZoom() > 19) { map.setZoom(19); }
+      map.easeTo({ pitch: 0, duration: 300 });
+      map.setStyle({ version: 8, sources: { topo: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19, attribution: '© Esri' } }, layers: [{ id: 'topo', type: 'raster', source: 'topo' }] });
+    } else { restoreVectorStyle(); }
+  } catch (e) { console.log('topo: ' + e); }
+};
+
+// Alternative routes, like Google Maps: every route is drawn, the
+// selected one bright green on top, the others in a darker blue.
+// Route time pills on the map (e.g. "39 د") at each route midpoint.
+var routeLabelMarkers = [];
+function clearRouteLabels() {
+  for (var i = 0; i < routeLabelMarkers.length; i++) { routeLabelMarkers[i].remove(); }
+  routeLabelMarkers = [];
+}
+var lastAltGeometries = null;
+var lastAltSelected = 0;
+window.setRoutes = function(geometries, selectedIndex) {
+  lastAltGeometries = geometries; lastAltSelected = selectedIndex;
+  try {
+    var feats = [];
+    for (var i = 0; i < geometries.length; i++) {
+      if (i === selectedIndex) continue;
+      feats.push({ type: 'Feature', geometry: geometries[i] });
+    }
+    if (map.getSource('routeAlt')) {
+      map.getSource('routeAlt').setData({ type: 'FeatureCollection', features: feats });
+    } else if (feats.length > 0) {
+      map.addSource('routeAlt', { type: 'geojson', data: { type: 'FeatureCollection', features: feats } });
+      map.addLayer({ id: 'route-alt', type: 'line', source: 'routeAlt', paint: { 'line-color': '#4A7FB5', 'line-width': 5, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    }
+    // Keep the selected route on top of the alternatives.
+    try { if (map.getLayer('route-casing')) { map.moveLayer('route-casing'); } } catch (e2) {}
+    try { if (map.getLayer('route-line')) { map.moveLayer('route-line'); } } catch (e2) {}
+  } catch (e) { console.log('setRoutes: ' + e); }
+};
+window.setRouteLabels = function(labels) {
+  try {
+    clearRouteLabels();
+    for (var i = 0; i < labels.length; i++) {
+      var el = document.createElement('div');
+      el.textContent = labels[i].text;
+      el.style.cssText = 'background:#FFFFFF;border:2px solid #0B6B4F;color:#0B6B4F;font-family:sans-serif;font-size:13px;font-weight:bold;padding:3px 10px;border-radius:20px;white-space:nowrap;';
+      var m = new maplibregl.Marker({ element: el }).setLngLat([labels[i].lon, labels[i].lat]).addTo(map);
+      routeLabelMarkers.push(m);
+    }
+  } catch (e) { console.log('labels: ' + e); }
+};
+
 // Satellite (aerial-photo) style: real roofs and roads instead of the
 // schematic vector style. Buildings are flat photos here, not 3D blocks.
-var satelliteOn = false;
 window.setSatellite = function(on) {
   try {
     satelliteOn = !!on;
@@ -113,13 +185,13 @@ window.setSatellite = function(on) {
       // almost all pixels #CCCCCC). The old cap of 19 was therefore
       // wrong for Libya — cap at 17, and go flat (tilted raster looks
       // distorted and hides streets).
+      darkOn = false; topoOn = false;
       if (map.getZoom() > 17) { map.setZoom(17); }
       try { map.setMaxZoom(17); } catch (e2) {}
       map.easeTo({ pitch: 0, duration: 300 });
       map.setStyle({ version: 8, sources: { sat: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 17, attribution: '© Esri' } }, layers: [{ id: 'sat', type: 'raster', source: 'sat' }] });
     } else {
-      try { map.setMaxZoom(19); } catch (e2) {}
-      map.setStyle(styleUrls[styleIndex]);
+      restoreVectorStyle();
     }
   } catch (e) { console.log('satellite: ' + e); }
 };
@@ -131,10 +203,11 @@ map.on('load', function() {
 
 // A style change (including the CARTO fallback) removes custom layers,
 // so buildings and the route must be re-added after every style load,
-// not only on the first map load.
+// not only on the first map load. Alternatives too, from the last call.
 map.on('style.load', function() {
   addBuildings();
   addRouteLayer();
+  try { if (lastAltGeometries) { window.setRoutes(lastAltGeometries, lastAltSelected); } } catch (e) {}
 });
 
 // If tiles still have not loaded after 6 seconds (was 12), switch to
@@ -145,14 +218,14 @@ map.on('style.load', function() {
 var fallbackTried = false;
 setTimeout(function() {
   try {
-    if (!fallbackTried && !satelliteOn && !map.areTilesLoaded() && styleIndex === 0) {
+    if (!fallbackTried && !satelliteOn && !darkOn && !topoOn && !map.areTilesLoaded() && styleIndex === 0) {
       fallbackTried = true;
       styleIndex = 1;
       map.setStyle(styleUrls[1]);
       document.getElementById('note').textContent = 'تم التبديل إلى نمط خريطة بديل — جارٍ تحميل البلاطات…';
       setTimeout(function() {
         try {
-          if (!satelliteOn && !map.areTilesLoaded()) {
+          if (!satelliteOn && !darkOn && !topoOn && !map.areTilesLoaded()) {
             document.getElementById('note').textContent = 'تعذر تحميل بلاطات الخريطة — تحقق من الاتصال، أو اضغط «إعادة تحميل الخريطة» من التفاصيل.';
           }
         } catch (e2) {}
@@ -241,12 +314,11 @@ function apply3d() {
 }
 window.set3d = function(enabled) {
   if (!enabled) { map.setPitch(0); return; }
-  // Backup guard (Kotlin also turns satellite off first): 3D on the
-  // flat satellite raster shows no buildings at all, so restore the
-  // vector style before flying to a building area.
-  if (satelliteOn) {
-    satelliteOn = false;
-    map.setStyle(styleUrls[styleIndex]);
+  // Backup guard (Kotlin also turns non-vector modes off first): 3D on
+  // a flat raster shows no buildings at all, so restore the vector
+  // style before flying to a building area.
+  if (satelliteOn || darkOn || topoOn) {
+    restoreVectorStyle();
     map.once('style.load', function() { apply3d(); });
     return;
   }
