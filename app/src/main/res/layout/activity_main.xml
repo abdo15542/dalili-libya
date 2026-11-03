@@ -156,6 +156,12 @@
             android:layout_height="wrap_content"
             android:max="100" />
 
+        <Button
+            android:id="@+id/buttonPreviewAnim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="تشغيل معاينة الرحلة المتحركة" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
