@@ -53,7 +53,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var lastToLon: Double? = null
     private var lastToLat: Double? = null
     private var travelMode: String = "driving"
-    private var isSatellite: Boolean = false
+    // Map mode: "normal", "satellite", "dark" or "topo". Only one at a time.
+    private var mapMode: String = "normal"
     private val httpClient = OkHttpClient()
 
     private fun modeLabel(): String = when (travelMode) {
@@ -159,11 +160,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 super.onPageFinished(view, url)
                 refreshReportsOnMap()
                 selectedRoute?.let { showRouteOnMap(it) }
-                // A reload resets the page's satellite flag, so re-apply
-                // satellite mode if it was on, or the button text and the
-                // map would disagree after "reload map".
-                if (isSatellite) {
-                    webView.evaluateJavascript("window.setSatellite(true);", null)
+                // A reload resets the page's map-mode flags, so re-apply
+                // the mode if it was not normal, or the button text and
+                // the map would disagree after "reload map".
+                when (mapMode) {
+                    "satellite" -> webView.evaluateJavascript("window.setSatellite(true);", null)
+                    "dark" -> webView.evaluateJavascript("window.setDark(true);", null)
+                    "topo" -> webView.evaluateJavascript("window.setTopo(true);", null)
                 }
             }
             @Suppress("DEPRECATION")
@@ -262,12 +265,31 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         updateModeButtons()
 
-        findViewById<Button>(R.id.buttonSatellite).setOnClickListener {
-            isSatellite = !isSatellite
-            webView.evaluateJavascript("window.setSatellite($isSatellite);", null)
-            findViewById<Button>(R.id.buttonSatellite).text = if (isSatellite) "العودة إلى الخريطة العادية" else "خريطة القمر الصناعي"
-            Toast.makeText(this, if (isSatellite) "خريطة القمر الصناعي مفعّلة — صور جوية حقيقية" else "خريطة عادية", Toast.LENGTH_SHORT).show()
+        // Map types, like Google's map-type sheet: normal, satellite,
+        // dark, topographic. Exactly one is active; tapping the active
+        // one returns to normal. Button texts stay in sync with mapMode.
+        fun setMapMode(mode: String) {
+            val newMode = if (mode == mapMode) "normal" else mode
+            mapMode = newMode
+            when (newMode) {
+                "satellite" -> webView.evaluateJavascript("window.setSatellite(true);", null)
+                "dark" -> webView.evaluateJavascript("window.setDark(true);", null)
+                "topo" -> webView.evaluateJavascript("window.setTopo(true);", null)
+                else -> webView.evaluateJavascript("window.setSatellite(false);", null)
+            }
+            findViewById<Button>(R.id.buttonSatellite).text = if (newMode == "satellite") "العودة إلى الخريطة العادية" else "خريطة القمر الصناعي"
+            findViewById<Button>(R.id.buttonDarkMap).text = if (newMode == "dark") "العودة إلى الخريطة العادية" else "خريطة داكنة"
+            findViewById<Button>(R.id.buttonTopoMap).text = if (newMode == "topo") "العودة إلى الخريطة العادية" else "خريطة التضاريس"
+            Toast.makeText(this, when (newMode) {
+                "satellite" -> "خريطة القمر الصناعي مفعّلة — صور جوية حقيقية"
+                "dark" -> "خريطة داكنة مفعّلة"
+                "topo" -> "خريطة التضاريس مفعّلة — طرق وتضاريس"
+                else -> "خريطة عادية"
+            }, Toast.LENGTH_SHORT).show()
         }
+        findViewById<Button>(R.id.buttonSatellite).setOnClickListener { setMapMode("satellite") }
+        findViewById<Button>(R.id.buttonDarkMap).setOnClickListener { setMapMode("dark") }
+        findViewById<Button>(R.id.buttonTopoMap).setOnClickListener { setMapMode("topo") }
 
         // Recovery buttons for the white-map / lost-route cases: reload
         // the whole map page (route and reports are re-applied on finish),
@@ -371,13 +393,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
 
         findViewById<Button>(R.id.button3d).setOnClickListener {
-            // 3D needs the vector map: if satellite is on, turn it off
-            // first (and keep the satellite button text in sync), or the
-            // 3D flight would run on flat aerial photos with no buildings.
-            if (isSatellite) {
-                isSatellite = false
+            // 3D needs the vector map: if a non-vector map mode is on,
+            // return to normal first (and keep button texts in sync),
+            // or the 3D flight would run on flat photos with no buildings.
+            if (mapMode != "normal") {
+                mapMode = "normal"
                 webView.evaluateJavascript("window.setSatellite(false);", null)
                 findViewById<Button>(R.id.buttonSatellite).text = "خريطة القمر الصناعي"
+                findViewById<Button>(R.id.buttonDarkMap).text = "خريطة داكنة"
+                findViewById<Button>(R.id.buttonTopoMap).text = "خريطة التضاريس"
             }
             is3d = !is3d
             // set3d() in index.html flies to a building area at zoom 16
@@ -541,6 +565,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         try {
             val stepText = if (stepIndex in route.steps.indices) route.steps[stepIndex].text else "ابدأ الرحلة"
             findViewById<TextView>(R.id.textNavStep).text = stepText
+            // Next-turn preview, like Google's "ثم ↪" chip: the step after
+            // the current one, with a turn arrow from its modifier.
+            val nextTextView = findViewById<TextView>(R.id.textNavNext)
+            if (stepIndex + 1 in route.steps.indices) {
+                val next = route.steps[stepIndex + 1]
+                val arrow = when (next.modifier) {
+                    "left", "uturn" -> "↩"
+                    "right" -> "↪"
+                    "slight left" -> "↖"
+                    "slight right" -> "↗"
+                    "sharp left" -> "↩"
+                    "sharp right" -> "↪"
+                    else -> "↑"
+                }
+                nextTextView.text = "ثم $arrow ${next.text}"
+                nextTextView.visibility = View.VISIBLE
+            } else {
+                nextTextView.visibility = View.GONE
+            }
             var remKm = 0.0
             var remMin = 0.0
             for (i in stepIndex until route.steps.size) {
@@ -554,8 +597,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val arrival = java.util.Calendar.getInstance()
             arrival.add(java.util.Calendar.MINUTE, remMin.roundToInt())
             val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+            // Google shows short remainders in metres, not "0.6 كم".
+            val remText = if (remKm < 1.0) "${(remKm * 1000).roundToInt()} متر" else "${"%.1f".format(remKm)} كم"
             findViewById<TextView>(R.id.textNavEta).text =
-                "باقي ${"%.1f".format(remKm)} كم — ${remMin.roundToInt()} دقيقة — الوصول ${timeFmt.format(arrival.time)}"
+                "باقي $remText — ${remMin.roundToInt()} دقيقة — الوصول ${timeFmt.format(arrival.time)}"
         } catch (e: Exception) {}
     }
 
@@ -631,6 +676,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             sb.append("\nالمسار ${index + 1}: ${"%.1f".format(route.distanceKm)} كم، ${route.durationMin.roundToInt()} دقيقة${fuelText}، درجة أمان تقديرية ${Routing.safetyScore(nearCount)}")
             if (fastest) sb.append(" — الأسرع")
             if (cheapest) sb.append(" — الأقل مسافة")
+            // Fuel saving vs the longest alternative, like Google's
+            // "this route saves X% fuel": real, from OSRM distances only.
+            val maxDist = routes.maxOfOrNull { it.distanceKm } ?: route.distanceKm
+            if (cheapest && maxDist > route.distanceKm) {
+                val saving = ((maxDist - route.distanceKm) / maxDist * 100).roundToInt()
+                if (saving >= 1) sb.append(" — يوفّر الوقود بنسبة $saving%")
+            }
             if (route == selectedRoute) sb.append(" — المعروض على الخريطة")
         }
         sb.append("\n\nدرجة الأمان تقدير من بلاغات قريبة من هذا المسار فقط، وليست تصنيفًا رسميًا.")
@@ -650,6 +702,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun showRouteOnMap(route: RouteInfo) {
         val js = "window.setRoute(${route.geometryJson});"
         webView.evaluateJavascript(js, null)
+        drawAllRoutes()
+    }
+
+    // Google-style route overview: all routes drawn at once (selected
+    // bright green, alternatives darker blue) with a time pill at each
+    // route's midpoint, like Google's "39 د / 40 د" labels on the map.
+    private fun drawAllRoutes() {
+        try {
+            if (routes.isEmpty()) return
+            val selectedIndex = routes.indexOf(selectedRoute).takeIf { it >= 0 } ?: 0
+            val geometries = routes.joinToString(",") { it.geometryJson }
+            webView.evaluateJavascript("window.setRoutes([$geometries], $selectedIndex);", null)
+            val labels = routes.map { r ->
+                val mid = r.coordinates.getOrNull(r.coordinates.size / 2) ?: Pair(0.0, 0.0)
+                "{lon:${mid.first},lat:${mid.second},text:'${r.durationMin.roundToInt()} د'}"
+            }.joinToString(",")
+            webView.evaluateJavascript("window.setRouteLabels([$labels]);", null)
+        } catch (e: Exception) {}
     }
 
     private fun refreshReportsList() {
