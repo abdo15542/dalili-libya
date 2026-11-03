@@ -36,6 +36,12 @@ var reportMarkers = [];
 
 function addBuildings() {
   try {
+    // The Liberty style already has a built-in building-3d layer
+    // (minzoom 14, filter !has hide_3d, height render_height).
+    // Do not add a duplicate custom layer: it only causes z-fighting.
+    // The old custom filter ['==','extrude','true'] matched almost no
+    // OpenMapTiles buildings, which is why 3D looked flat even at zoom 16.
+    if (map.getLayer('building-3d')) return;
     var layers = map.getStyle().layers;
     var labelLayer = null;
     for (var i = 0; i < layers.length; i++) {
@@ -47,14 +53,14 @@ function addBuildings() {
       'id': '3d-buildings',
       'source': 'openmaptiles',
       'source-layer': 'building',
-      'filter': ['==', 'extrude', 'true'],
+      'filter': ['!', ['has', 'hide_3d']],
       'type': 'fill-extrusion',
-      'minzoom': 15,
+      'minzoom': 14,
       'paint': {
-        'fill-extrusion-color': '#aaaaaa',
-        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.05, ['get', 'render_height']],
-        'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.05, ['get', 'render_min_height']],
-        'fill-extrusion-opacity': 0.6
+        'fill-extrusion-color': 'hsl(35,8%,85%)',
+        'fill-extrusion-height': ['get', 'render_height'],
+        'fill-extrusion-base': ['get', 'render_min_height'],
+        'fill-extrusion-opacity': 0.8
       }
     }, labelLayer);
   } catch (e) { console.log('3d buildings: ' + e); }
@@ -143,7 +149,10 @@ window.startPreviewAnimation = function() {
     var p = Math.min(1, (Date.now() - previewAnimStart) / 30000);
     window.previewRoute(p);
     if (p < 1) { previewAnimId = requestAnimationFrame(step); }
-    else { previewAnimId = null; }
+    else {
+      previewAnimId = null;
+      try { if (window.DaliliBridge) { window.DaliliBridge.onPreviewFinished(); } } catch (e) {}
+    }
   }
   step();
   return true;
