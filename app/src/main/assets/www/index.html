@@ -4,8 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>دليلي ليبيا</title>
-<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<!-- MapLibre bundled locally (4.7.1): the previous version loaded it
+     from a remote CDN, so if that CDN was slow or unreachable on the
+     user's network, the map never initialised at all and stayed white,
+     even though routing (OSRM) still worked. Local files remove that
+     single point of failure; only the tile styles still need internet. -->
+<link href="maplibre-gl.css" rel="stylesheet" />
+<script src="maplibre-gl.js"></script>
 <style>
   html, body { margin: 0; height: 100%; }
   #map { width: 100%; height: 100%; background: #e8e8e8; }
@@ -132,8 +137,11 @@ map.on('style.load', function() {
   addRouteLayer();
 });
 
-// If tiles still have not loaded after 12 seconds, switch to the fallback style once.
-// This is what fixes the blank white map when the primary tile style is unreachable.
+// If tiles still have not loaded after 6 seconds (was 12), switch to
+// the fallback style once. Waiting 12 seconds left the user staring at
+// a white map; 6 seconds is enough to tell the primary style is stuck.
+// If the fallback also has no tiles after another 10 seconds, say so
+// plainly in the map note instead of staying silently white.
 var fallbackTried = false;
 setTimeout(function() {
   try {
@@ -142,9 +150,16 @@ setTimeout(function() {
       styleIndex = 1;
       map.setStyle(styleUrls[1]);
       document.getElementById('note').textContent = 'تم التبديل إلى نمط خريطة بديل — جارٍ تحميل البلاطات…';
+      setTimeout(function() {
+        try {
+          if (!satelliteOn && !map.areTilesLoaded()) {
+            document.getElementById('note').textContent = 'تعذر تحميل بلاطات الخريطة — تحقق من الاتصال، أو اضغط «إعادة تحميل الخريطة» من التفاصيل.';
+          }
+        } catch (e2) {}
+      }, 10000);
     }
   } catch (e) { console.log('fallback: ' + e); }
-}, 12000);
+}, 6000);
 
 map.on('error', function(e) {
   try {
