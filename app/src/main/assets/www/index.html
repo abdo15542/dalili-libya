@@ -26,7 +26,8 @@ var map = new maplibregl.Map({
   style: styleUrls[0],
   center: [17.0, 27.0],
   zoom: 5.5,
-  pitch: 0
+  pitch: 0,
+  maxZoom: 19
 });
 map.addControl(new maplibregl.NavigationControl(), 'top-left');
 var routeCoords = [];
@@ -46,7 +47,7 @@ function addBuildings() {
       // for contrast instead of leaving the default washed-out colour.
       try {
         map.setPaintProperty('building-3d', 'fill-extrusion-color', '#94A89E');
-        map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.95);
+        map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.85);
       } catch (e2) {}
       return;
     }
@@ -95,7 +96,12 @@ window.setSatellite = function(on) {
   try {
     satelliteOn = !!on;
     if (satelliteOn) {
-      map.setStyle({ version: 8, sources: { sat: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, attribution: '© Esri' } }, layers: [{ id: 'sat', type: 'raster', source: 'sat' }] });
+      // Esri imagery has no tiles above zoom 19: at higher zooms it
+      // returns grey "Map data not yet available" tiles, so cap the zoom
+      // and go flat (tilted raster looks distorted and hides streets).
+      if (map.getZoom() > 19) { map.setZoom(19); }
+      map.easeTo({ pitch: 0, duration: 300 });
+      map.setStyle({ version: 8, sources: { sat: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19, attribution: '© Esri' } }, layers: [{ id: 'sat', type: 'raster', source: 'sat' }] });
     } else {
       map.setStyle(styleUrls[styleIndex]);
     }
@@ -141,6 +147,11 @@ window.setRoute = function(geometry) {
   currentGeometry = geometry;
   routeCoords = geometry.coordinates || [];
   addRouteLayer();
+  // A route must be viewed flat: if the user previously enabled 3D,
+  // the tilted view leaves huge buildings standing over the road and
+  // the route itself is hard to follow. Reset pitch for route views;
+  // 3D remains available on demand via the 3D button.
+  try { map.easeTo({ pitch: 0, duration: 500 }); } catch (e) {}
   if (routeCoords.length > 0) {
     var bounds = routeCoords.reduce(function(b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0]));
     map.fitBounds(bounds, { padding: 60 });
