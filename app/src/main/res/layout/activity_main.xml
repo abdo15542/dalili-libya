@@ -312,6 +312,28 @@
                         android:textSize="15sp"
                         android:textStyle="bold" />
 
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonShowRoute"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="عرض المسار كاملًا على الخريطة"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonReloadMap"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="إعادة تحميل الخريطة"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
