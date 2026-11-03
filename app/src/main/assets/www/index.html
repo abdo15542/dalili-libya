@@ -41,7 +41,15 @@ function addBuildings() {
     // Do not add a duplicate custom layer: it only causes z-fighting.
     // The old custom filter ['==','extrude','true'] matched almost no
     // OpenMapTiles buildings, which is why 3D looked flat even at zoom 16.
-    if (map.getLayer('building-3d')) return;
+    if (map.getLayer('building-3d')) {
+      // Built-in buildings are pale beige on a pale map, so darken them
+      // for contrast instead of leaving the default washed-out colour.
+      try {
+        map.setPaintProperty('building-3d', 'fill-extrusion-color', '#94A89E');
+        map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.95);
+      } catch (e2) {}
+      return;
+    }
     var layers = map.getStyle().layers;
     var labelLayer = null;
     for (var i = 0; i < layers.length; i++) {
@@ -73,9 +81,26 @@ function addRouteLayer() {
     map.getSource('route').setData(geojson);
   } else {
     map.addSource('route', { type: 'geojson', data: geojson });
-    map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#0B6B4F', 'line-width': 5 } });
+    // White casing first, then a bright thick line: the route stays
+    // readable on both the light vector map and satellite imagery.
+    map.addLayer({ id: 'route-casing', type: 'line', source: 'route', paint: { 'line-color': '#FFFFFF', 'line-width': 11, 'line-opacity': 0.95 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#0EA47A', 'line-width': 7 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
   }
 }
+
+// Satellite (aerial-photo) style: real roofs and roads instead of the
+// schematic vector style. Buildings are flat photos here, not 3D blocks.
+var satelliteOn = false;
+window.setSatellite = function(on) {
+  try {
+    satelliteOn = !!on;
+    if (satelliteOn) {
+      map.setStyle({ version: 8, sources: { sat: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, attribution: '© Esri' } }, layers: [{ id: 'sat', type: 'raster', source: 'sat' }] });
+    } else {
+      map.setStyle(styleUrls[styleIndex]);
+    }
+  } catch (e) { console.log('satellite: ' + e); }
+};
 
 map.on('load', function() {
   addBuildings();
@@ -95,7 +120,7 @@ map.on('style.load', function() {
 var fallbackTried = false;
 setTimeout(function() {
   try {
-    if (!fallbackTried && !map.areTilesLoaded() && styleIndex === 0) {
+    if (!fallbackTried && !satelliteOn && !map.areTilesLoaded() && styleIndex === 0) {
       fallbackTried = true;
       styleIndex = 1;
       map.setStyle(styleUrls[1]);
@@ -118,7 +143,7 @@ window.setRoute = function(geometry) {
   addRouteLayer();
   if (routeCoords.length > 0) {
     var bounds = routeCoords.reduce(function(b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0]));
-    map.fitBounds(bounds, { padding: 40 });
+    map.fitBounds(bounds, { padding: 60 });
   }
   if (!marker && routeCoords.length > 0) {
     marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat(routeCoords[0]).addTo(map);
