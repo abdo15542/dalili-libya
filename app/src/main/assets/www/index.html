@@ -8,7 +8,7 @@
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <style>
   html, body { margin: 0; height: 100%; }
-  #map { width: 100%; height: 100%; }
+  #map { width: 100%; height: 100%; background: #e8e8e8; }
   #note { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.9); padding: 6px 10px; font-family: sans-serif; font-size: 12px; z-index: 10; }
 </style>
 </head>
@@ -16,24 +16,33 @@
 <div id="map"></div>
 <div id="note">خريطة ليبيا — اسحب للتكبير والتدوير</div>
 <script>
+var styleUrls = [
+  'https://tiles.openfreemap.org/styles/liberty',
+  'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
+];
+var styleIndex = 0;
 var map = new maplibregl.Map({
   container: 'map',
-  style: 'https://demotiles.maplibre.org/tiles/tiles.json',
+  style: styleUrls[0],
   center: [17.0, 27.0],
   zoom: 5.5,
   pitch: 0
 });
 map.addControl(new maplibregl.NavigationControl(), 'top-left');
 var routeCoords = [];
+var currentGeometry = null;
 var marker = null;
+var reportMarkers = [];
 
-map.on('load', function() {
+function addBuildings() {
   try {
     var layers = map.getStyle().layers;
     var labelLayer = null;
     for (var i = 0; i < layers.length; i++) {
       if (layers[i].type === 'symbol' && layers[i].layout && layers[i].layout['text-field']) { labelLayer = layers[i].id; break; }
     }
+    if (!map.getSource('openmaptiles')) return;
+    if (map.getLayer('3d-buildings')) return;
     map.addLayer({
       'id': '3d-buildings',
       'source': 'openmaptiles',
@@ -49,17 +58,51 @@ map.on('load', function() {
       }
     }, labelLayer);
   } catch (e) { console.log('3d buildings: ' + e); }
-});
+}
 
-window.setRoute = function(geometry) {
-  var geojson = { type: 'Feature', geometry: geometry };
-  routeCoords = geometry.coordinates || [];
+function addRouteLayer() {
+  if (!currentGeometry) return;
+  var geojson = { type: 'Feature', geometry: currentGeometry };
   if (map.getSource('route')) {
     map.getSource('route').setData(geojson);
   } else {
     map.addSource('route', { type: 'geojson', data: geojson });
     map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#0B6B4F', 'line-width': 5 } });
   }
+}
+
+map.on('load', function() {
+  addBuildings();
+  addRouteLayer();
+});
+
+// If tiles still have not loaded after 12 seconds, switch to the fallback style once.
+// This is what fixes the blank white map when the primary tile style is unreachable.
+var fallbackTried = false;
+setTimeout(function() {
+  try {
+    if (!fallbackTried && !map.areTilesLoaded() && styleIndex === 0) {
+      fallbackTried = true;
+      styleIndex = 1;
+      map.setStyle(styleUrls[1]);
+      map.once('style.load', function() { addRouteLayer(); });
+      document.getElementById('note').textContent = 'تم التبديل إلى نمط خريطة بديل — جارٍ تحميل البلاطات…';
+    }
+  } catch (e) { console.log('fallback: ' + e); }
+}, 12000);
+
+map.on('error', function(e) {
+  try {
+    if (e && e.error && e.error.status === 0) {
+      document.getElementById('note').textContent = 'تعذر تحميل بلاطات الخريطة — تحقق من الاتصال بالإنترنت.';
+    }
+  } catch (err) {}
+});
+
+window.setRoute = function(geometry) {
+  currentGeometry = geometry;
+  routeCoords = geometry.coordinates || [];
+  addRouteLayer();
   if (routeCoords.length > 0) {
     var bounds = routeCoords.reduce(function(b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0]));
     map.fitBounds(bounds, { padding: 40 });
@@ -87,8 +130,14 @@ window.setMarker = function(lon, lat) {
   map.setZoom(12);
 };
 
+window.clearReports = function() {
+  for (var i = 0; i < reportMarkers.length; i++) { reportMarkers[i].remove(); }
+  reportMarkers = [];
+};
+
 window.addReport = function(lon, lat, type) {
-  new maplibregl.Marker({ color: '#C0392B' }).setLngLat([lon, lat]).setPopup(new maplibregl.Popup().setText(type + ' — بلاغ مستخدم، غير مؤكد رسميًا.')).addTo(map);
+  var m = new maplibregl.Marker({ color: '#C0392B' }).setLngLat([lon, lat]).setPopup(new maplibregl.Popup().setText(type + ' — بلاغ مستخدم، غير مؤكد رسميًا.')).addTo(map);
+  reportMarkers.push(m);
 };
 </script>
 </body>
