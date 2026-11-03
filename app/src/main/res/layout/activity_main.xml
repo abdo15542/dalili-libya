@@ -68,6 +68,12 @@
             android:layout_height="wrap_content"
             android:text="@string/find_routes" />
 
+        <Button
+            android:id="@+id/buttonNextRoute"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="عرض المسار التالي على الخريطة" />
+
         <TextView
             android:id="@+id/textStatus"
             android:layout_width="match_parent"
