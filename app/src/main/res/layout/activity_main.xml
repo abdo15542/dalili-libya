@@ -1,305 +1,367 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#EAF0EC">
 
-    <!-- Full-screen map, like global navigation apps. -->
+    <!-- Full-screen map -->
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Top search card -->
-    <LinearLayout
+    <!-- Top floating search card -->
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:layout_margin="12dp"
-        android:background="@drawable/card_bg"
-        android:elevation="8dp"
-        android:orientation="vertical"
-        android:padding="16dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textColor="#0B6B4F"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/slogan"
-            android:textColor="#666666"
-            android:textSize="13sp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/from_label"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <Spinner
-            android:id="@+id/spinnerFrom"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/input_bg"
-            android:padding="8dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/to_label"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <Spinner
-            android:id="@+id/spinnerTo"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/input_bg"
-            android:padding="8dp" />
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        app:cardBackgroundColor="#FFFFFF"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="10dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:padding="18dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textColor="#0B6B4F"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/slogan"
+                android:textColor="#6B7A72"
+                android:textSize="13sp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="14dp"
+                android:background="#E8EDEA" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/from_label"
+                android:textColor="#1F2A24"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/spinnerFrom"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/input_pill"
+                android:padding="12dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/to_label"
+                android:textColor="#1F2A24"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/spinnerTo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/input_pill"
+                android:padding="12dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal">
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/buttonFind"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/btn_primary_pill"
+                    android:text="@string/find_routes"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/buttonSwap"
+                    android:layout_width="wrap_content"
+                    android:layout_height="56dp"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/btn_secondary_pill"
+                    android:text="تبديل"
+                    android:textColor="#0B6B4F"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
 
             <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/buttonFind"
-                android:layout_width="0dp"
+                android:id="@+id/buttonLocation"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/btn_secondary_pill"
+                android:text="@string/my_location"
+                android:textColor="#0B6B4F"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Bottom floating route sheet, collapsed by default -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        app:cardBackgroundColor="#FFFFFF"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="10dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="18dp">
+
+            <View
+                android:layout_width="48dp"
+                android:layout_height="5dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/handle" />
+
+            <TextView
+                android:id="@+id/textStatus"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:background="@drawable/btn_primary"
-                android:text="@string/find_routes"
+                android:textColor="#0B6B4F"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/textRoutes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#1F2A24"
+                android:textSize="14sp"
+                android:paddingTop="4dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/buttonVoice"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginTop="14dp"
+                android:background="@drawable/btn_accent_pill"
+                android:text="@string/voice_nav"
                 android:textColor="#FFFFFF"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
             <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/buttonSwap"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/btn_secondary"
-                android:text="تبديل"
-                android:textColor="#0B6B4F" />
-
-        </LinearLayout>
-
-        <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/buttonLocation"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/btn_secondary"
-            android:text="@string/my_location"
-            android:textColor="#0B6B4F" />
-
-    </LinearLayout>
-
-    <!-- Bottom route card -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_margin="12dp"
-        android:background="@drawable/card_bg"
-        android:elevation="8dp"
-        android:orientation="vertical"
-        android:padding="16dp">
-
-        <TextView
-            android:id="@+id/textStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#0B6B4F"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/textRoutes"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="14sp"
-            android:paddingTop="4dp" />
-
-        <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/buttonVoice"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/btn_primary"
-            android:text="@string/voice_nav"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp"
-            android:textStyle="bold" />
-
-        <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/buttonToggleDetails"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/btn_secondary"
-            android:text="إظهار المزيد من التفاصيل"
-            android:textColor="#0B6B4F" />
-
-        <ScrollView
-            android:id="@+id/scrollDetails"
-            android:layout_width="match_parent"
-            android:layout_height="180dp"
-            android:layout_marginTop="8dp"
-            android:visibility="gone">
-
-            <LinearLayout
+                android:id="@+id/buttonToggleDetails"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/btn_secondary_pill"
+                android:text="إظهار المزيد من التفاصيل"
+                android:textColor="#0B6B4F"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/buttonNextRoute"
+            <ScrollView
+                android:id="@+id/scrollDetails"
+                android:layout_width="match_parent"
+                android:layout_height="200dp"
+                android:layout_marginTop="10dp"
+                android:visibility="gone">
+
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/btn_secondary"
-                    android:text="عرض المسار التالي على الخريطة"
-                    android:textColor="#0B6B4F" />
+                    android:orientation="vertical">
 
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/button3d"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/btn_secondary"
-                    android:text="@string/toggle_3d"
-                    android:textColor="#0B6B4F" />
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonNextRoute"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="عرض المسار التالي على الخريطة"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="استهلاك الوقود (لتر / 100 كم)"
-                    android:textSize="13sp" />
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/button3d"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="@string/toggle_3d"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
 
-                <EditText
-                    android:id="@+id/editConsumption"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/input_bg"
-                    android:inputType="numberDecimal"
-                    android:padding="8dp"
-                    android:text="8" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="استهلاك الوقود (لتر / 100 كم)"
+                        android:textColor="#0B6B4F"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="سعر اللتر التقديري (دينار)"
-                    android:textSize="13sp" />
+                    <EditText
+                        android:id="@+id/editConsumption"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/input_pill"
+                        android:inputType="numberDecimal"
+                        android:padding="12dp"
+                        android:text="8" />
 
-                <EditText
-                    android:id="@+id/editFuelPrice"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/input_bg"
-                    android:inputType="numberDecimal"
-                    android:padding="8dp"
-                    android:text="0.15" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="سعر اللتر التقديري (دينار)"
+                        android:textColor="#0B6B4F"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/fuel_note"
-                    android:textSize="12sp" />
+                    <EditText
+                        android:id="@+id/editFuelPrice"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/input_pill"
+                        android:inputType="numberDecimal"
+                        android:padding="12dp"
+                        android:text="0.15" />
 
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/buttonFuel"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/btn_secondary"
-                    android:text="محطات وقود على طول المسار"
-                    android:textColor="#0B6B4F" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/fuel_note"
+                        android:textColor="#6B7A72"
+                        android:textSize="12sp" />
 
-                <TextView
-                    android:id="@+id/textFuel"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="13sp"
-                    android:paddingTop="8dp" />
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonFuel"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="محطات وقود على طول المسار"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/time_preview"
-                    android:layout_marginTop="12dp"
-                    android:textSize="13sp" />
+                    <TextView
+                        android:id="@+id/textFuel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="#1F2A24"
+                        android:textSize="13sp"
+                        android:paddingTop="8dp" />
 
-                <SeekBar
-                    android:id="@+id/seekPreview"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="100" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/time_preview"
+                        android:textColor="#0B6B4F"
+                        android:layout_marginTop="16dp"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
 
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/buttonPreviewAnim"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/btn_secondary"
-                    android:text="تشغيل معاينة الرحلة المتحركة"
-                    android:textColor="#0B6B4F" />
+                    <SeekBar
+                        android:id="@+id/seekPreview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:max="100" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/report_label"
-                    android:layout_marginTop="12dp"
-                    android:textSize="13sp" />
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonPreviewAnim"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="تشغيل معاينة الرحلة المتحركة"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
 
-                <Spinner
-                    android:id="@+id/spinnerReportType"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/input_bg"
-                    android:padding="8dp" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/report_label"
+                        android:textColor="#0B6B4F"
+                        android:layout_marginTop="16dp"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
 
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/buttonReport"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/btn_secondary"
-                    android:text="@string/add_report"
-                    android:textColor="#0B6B4F" />
+                    <Spinner
+                        android:id="@+id/spinnerReportType"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/input_pill"
+                        android:padding="12dp" />
 
-                <TextView
-                    android:id="@+id/textReports"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="13sp"
-                    android:paddingTop="8dp" />
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonReport"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="@string/add_report"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/traffic_warning"
-                    android:textSize="11sp"
-                    android:paddingTop="12dp" />
+                    <TextView
+                        android:id="@+id/textReports"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="#1F2A24"
+                        android:textSize="13sp"
+                        android:paddingTop="8dp" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/safety_note"
-                    android:textSize="11sp"
-                    android:paddingBottom="8dp" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/traffic_warning"
+                        android:textColor="#6B7A72"
+                        android:textSize="11sp"
+                        android:paddingTop="14dp" />
 
-            </LinearLayout>
-        </ScrollView>
-    </LinearLayout>
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/safety_note"
+                        android:textColor="#6B7A72"
+                        android:textSize="11sp"
+                        android:paddingBottom="8dp" />
+
+                </LinearLayout>
+            </ScrollView>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 </FrameLayout>
