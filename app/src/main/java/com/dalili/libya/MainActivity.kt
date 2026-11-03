@@ -275,20 +275,29 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
 
         // Top search bar: collapses to a slim bar so the map stays visible.
+        // Audit fix: the expanded search card and the bottom sheet are
+        // stacked in one FrameLayout, so on a phone screen they overlap
+        // and the bottom card covers the Find button. While the search
+        // panel is open, the bottom card is hidden entirely; it returns
+        // as soon as the search panel is closed or a route is found.
         findViewById<Button>(R.id.buttonToggleSearch).setOnClickListener {
             val details = findViewById<View>(R.id.topDetails)
             val button = findViewById<Button>(R.id.buttonToggleSearch)
             if (details.visibility == View.VISIBLE) {
                 details.visibility = View.GONE
                 button.text = "بحث"
+                findViewById<View>(R.id.bottomCard).visibility = View.VISIBLE
             } else {
                 details.visibility = View.VISIBLE
                 button.text = "إخفاء البحث"
+                findViewById<View>(R.id.bottomCard).visibility = View.GONE
             }
         }
 
         // Bottom sheet collapsed by default so the map stays visible.
         // The summary + voice button stay outside the details area.
+        // Audit fix: expanding the details also collapses the search
+        // panel, so the two panels can never be open at the same time.
         findViewById<Button>(R.id.buttonToggleDetails).setOnClickListener {
             val details = findViewById<View>(R.id.scrollDetails)
             val button = findViewById<Button>(R.id.buttonToggleDetails)
@@ -298,10 +307,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             } else {
                 details.visibility = View.VISIBLE
                 button.text = "إخفاء التفاصيل"
+                findViewById<View>(R.id.topDetails).visibility = View.GONE
+                findViewById<Button>(R.id.buttonToggleSearch).text = "بحث"
             }
         }
 
         findViewById<Button>(R.id.button3d).setOnClickListener {
+            // 3D needs the vector map: if satellite is on, turn it off
+            // first (and keep the satellite button text in sync), or the
+            // 3D flight would run on flat aerial photos with no buildings.
+            if (isSatellite) {
+                isSatellite = false
+                webView.evaluateJavascript("window.setSatellite(false);", null)
+                findViewById<Button>(R.id.buttonSatellite).text = "خريطة القمر الصناعي"
+            }
             is3d = !is3d
             // set3d() in index.html flies to a building area at zoom 16
             // with pitch 60 and re-adds the buildings layer. setPitch()
@@ -500,7 +519,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val maxLon = route.coordinates.maxOfOrNull { it.first } ?: 0.0
             val nearCount = reports.count { it.lat in (minLat - 0.1)..(maxLat + 0.1) && it.lon in (minLon - 0.1)..(maxLon + 0.1) }
             val fuelText = if (travelMode == "driving") "، وقود تقديري ${"%.1f".format(fuel)} لتر، تكلفة تقديرية ${"%.2f".format(cost)} دينار" else "، بدون وقود"
-            sb.append("\nالمسار ${index + 1}: ${"%.1f".format(route.distanceKm)} كم، ${route.durationMin.roundToInt()} دقيقة$ fuelText، درجة أمان تقديرية ${Routing.safetyScore(nearCount)}")
+            sb.append("\nالمسار ${index + 1}: ${"%.1f".format(route.distanceKm)} كم، ${route.durationMin.roundToInt()} دقيقة${fuelText}، درجة أمان تقديرية ${Routing.safetyScore(nearCount)}")
             if (fastest) sb.append(" — الأسرع")
             if (cheapest) sb.append(" — الأقل مسافة")
             if (route == selectedRoute) sb.append(" — المعروض على الخريطة")
@@ -515,6 +534,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             findViewById<Button>(R.id.buttonToggleSearch).text = "بحث"
             findViewById<View>(R.id.scrollDetails).visibility = View.GONE
             findViewById<Button>(R.id.buttonToggleDetails).text = "إظهار المزيد من التفاصيل"
+            findViewById<View>(R.id.bottomCard).visibility = View.VISIBLE
         } catch (e: Exception) {}
     }
 
