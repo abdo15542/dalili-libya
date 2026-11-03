@@ -205,6 +205,7 @@
 
     <!-- Bottom floating route sheet, collapsed by default -->
     <com.google.android.material.card.MaterialCardView
+        android:id="@+id/bottomCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
