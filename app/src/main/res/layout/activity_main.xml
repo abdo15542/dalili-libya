@@ -313,6 +313,28 @@
                         android:textStyle="bold" />
 
                     <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonDarkMap"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="خريطة داكنة"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonTopoMap"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="خريطة التضاريس"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <androidx.appcompat.widget.AppCompatButton
                         android:id="@+id/buttonShowRoute"
                         android:layout_width="match_parent"
                         android:layout_height="52dp"
@@ -522,6 +544,15 @@
                     android:textColor="#FFFFFF"
                     android:textSize="16sp" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/textNavNext"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/textNavEta"
