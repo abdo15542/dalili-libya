@@ -80,6 +80,12 @@ function addRouteLayer() {
   var geojson = { type: 'Feature', geometry: currentGeometry };
   if (map.getSource('route')) {
     map.getSource('route').setData(geojson);
+    // A style change can leave the source without its layers; re-add
+    // them instead of silently drawing no route at all.
+    if (!map.getLayer('route-line')) {
+      map.addLayer({ id: 'route-casing', type: 'line', source: 'route', paint: { 'line-color': '#FFFFFF', 'line-width': 11, 'line-opacity': 0.95 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+      map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#0EA47A', 'line-width': 7 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    }
   } else {
     map.addSource('route', { type: 'geojson', data: geojson });
     // White casing first, then a bright thick line: the route stays
@@ -149,12 +155,13 @@ window.setRoute = function(geometry) {
   addRouteLayer();
   // A route must be viewed flat: if the user previously enabled 3D,
   // the tilted view leaves huge buildings standing over the road and
-  // the route itself is hard to follow. Reset pitch for route views;
-  // 3D remains available on demand via the 3D button.
-  try { map.easeTo({ pitch: 0, duration: 500 }); } catch (e) {}
+  // the route itself is hard to follow. Pass pitch: 0 to fitBounds
+  // itself — a separate easeTo is cancelled by fitBounds, so it alone
+  // did not reliably flatten the view. 3D remains on demand via the
+  // 3D button.
   if (routeCoords.length > 0) {
     var bounds = routeCoords.reduce(function(b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0]));
-    map.fitBounds(bounds, { padding: 60 });
+    map.fitBounds(bounds, { padding: 60, pitch: 0 });
   }
   if (!marker && routeCoords.length > 0) {
     marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat(routeCoords[0]).addTo(map);
@@ -167,6 +174,9 @@ window.previewRoute = function(progress) {
   var pos = routeCoords[idx];
   if (!marker) { marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat(pos).addTo(map); }
   else { marker.setLngLat(pos); }
+  // The preview follows the route, so it must also be flat — a tilted
+  // view leaves buildings standing over the moving marker.
+  try { if (map.getPitch() !== 0) { map.setPitch(0); } } catch (e) {}
   // At country zoom the moving marker is almost invisible, so zoom in
   // for the preview instead of staying at zoom 5.5 or 8.
   if (map.getZoom() < 11) { map.setZoom(11); }
@@ -211,6 +221,15 @@ function apply3d() {
 }
 window.set3d = function(enabled) {
   if (!enabled) { map.setPitch(0); return; }
+  // Backup guard (Kotlin also turns satellite off first): 3D on the
+  // flat satellite raster shows no buildings at all, so restore the
+  // vector style before flying to a building area.
+  if (satelliteOn) {
+    satelliteOn = false;
+    map.setStyle(styleUrls[styleIndex]);
+    map.once('style.load', function() { apply3d(); });
+    return;
+  }
   if (styleIndex !== 0) {
     styleIndex = 0;
     map.setStyle(styleUrls[0]);
@@ -225,6 +244,7 @@ window.setMarker = function(lon, lat) {
   else { marker.setLngLat([lon, lat]); }
   map.setCenter([lon, lat]);
   map.setZoom(12);
+  try { map.setPitch(0); } catch (e) {}
 };
 
 window.clearReports = function() {
