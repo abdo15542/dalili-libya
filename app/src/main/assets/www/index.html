@@ -102,13 +102,18 @@ window.setSatellite = function(on) {
   try {
     satelliteOn = !!on;
     if (satelliteOn) {
-      // Esri imagery has no tiles above zoom 19: at higher zooms it
-      // returns grey "Map data not yet available" tiles, so cap the zoom
-      // and go flat (tilted raster looks distorted and hides streets).
-      if (map.getZoom() > 19) { map.setZoom(19); }
+      // Verified 2026-11-03 by live tile tests for Zliten: Esri imagery
+      // is real up to zoom 17 (26-32 KB tiles), but at zoom 18-19 it is
+      // only the grey "Map data not yet available" placeholder (2.5 KB,
+      // almost all pixels #CCCCCC). The old cap of 19 was therefore
+      // wrong for Libya — cap at 17, and go flat (tilted raster looks
+      // distorted and hides streets).
+      if (map.getZoom() > 17) { map.setZoom(17); }
+      try { map.setMaxZoom(17); } catch (e2) {}
       map.easeTo({ pitch: 0, duration: 300 });
-      map.setStyle({ version: 8, sources: { sat: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19, attribution: '© Esri' } }, layers: [{ id: 'sat', type: 'raster', source: 'sat' }] });
+      map.setStyle({ version: 8, sources: { sat: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 17, attribution: '© Esri' } }, layers: [{ id: 'sat', type: 'raster', source: 'sat' }] });
     } else {
+      try { map.setMaxZoom(19); } catch (e2) {}
       map.setStyle(styleUrls[styleIndex]);
     }
   } catch (e) { console.log('satellite: ' + e); }
@@ -238,6 +243,24 @@ window.set3d = function(enabled) {
   }
   apply3d();
 };
+
+// Driving view, like Google Maps navigation: the map follows the user
+// at street zoom (17, where street names and places render), rotates to
+// the GPS heading and stays flat, so the street being driven on is
+// always visible in the centre. Called only while following is on.
+window.followUser = function(lon, lat, bearing) {
+  if (!marker) { marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat([lon, lat]).addTo(map); }
+  else { marker.setLngLat([lon, lat]); }
+  try {
+    map.easeTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 17), bearing: bearing || 0, pitch: 0, duration: 600 });
+  } catch (e) { map.setCenter([lon, lat]); }
+};
+
+// When the user drags the map during navigation, following pauses and
+// Kotlin shows the "recenter" button, exactly like Google Maps.
+map.on('dragstart', function() {
+  try { if (window.DaliliBridge) { window.DaliliBridge.onMapDragged(); } } catch (e) {}
+});
 
 window.setMarker = function(lon, lat) {
   if (!marker) { marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat([lon, lat]).addTo(map); }
