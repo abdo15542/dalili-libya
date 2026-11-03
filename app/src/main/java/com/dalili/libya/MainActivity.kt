@@ -258,6 +258,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         super.onDestroy()
     }
 
+    @SuppressLint("MissingPermission")
     private fun startNavigation(route: RouteInfo) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             // No GPS: fall back to reading all Arabic instructions once.
@@ -271,7 +272,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         speakStep(route, 0)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         try {
-            @SuppressLint("MissingPermission")
             locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 10f, navListener)
         } catch (e: Exception) {
             Toast.makeText(this, "تعذر بدء تتبع الموقع: ${e.message}", Toast.LENGTH_LONG).show()
