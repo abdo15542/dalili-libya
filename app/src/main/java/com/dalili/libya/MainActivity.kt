@@ -239,6 +239,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<Button>(R.id.buttonSatellite).setOnClickListener {
             isSatellite = !isSatellite
             webView.evaluateJavascript("window.setSatellite($isSatellite);", null)
+            findViewById<Button>(R.id.buttonSatellite).text = if (isSatellite) "العودة إلى الخريطة العادية" else "خريطة القمر الصناعي"
             Toast.makeText(this, if (isSatellite) "خريطة القمر الصناعي مفعّلة — صور جوية حقيقية" else "خريطة عادية", Toast.LENGTH_SHORT).show()
         }
 
