@@ -16,14 +16,19 @@ object ReportsStore {
     private const val KEY = "reports_json"
 
     fun load(context: Context): List<RoadReport> {
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]") ?: "[]"
-        val arr = JSONArray(raw)
-        val out = mutableListOf<RoadReport>()
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            out.add(RoadReport(o.getString("type"), o.getDouble("lat"), o.getDouble("lon"), o.getLong("time")))
+        return try {
+            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]") ?: "[]"
+            val arr = JSONArray(raw)
+            val out = mutableListOf<RoadReport>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(RoadReport(o.getString("type"), o.getDouble("lat"), o.getDouble("lon"), o.getLong("time")))
+            }
+            out
+        } catch (e: Exception) {
+            // Corrupt stored data must never crash the app on start.
+            emptyList()
         }
-        return out
     }
 
     fun add(context: Context, report: RoadReport) {
