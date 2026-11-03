@@ -7,7 +7,7 @@
     <string name="find_routes">ابحث عن المسارات</string>
     <string name="my_location">موقعي الحالي كنقطة انطلاق</string>
     <string name="voice_nav">ابدأ الملاحة الصوتية</string>
-    <string name="time_preview">معاينة المسار على الخريطة (حرّك المؤشر لتحريك الدبوس على المسار)</string>
+    <string name="time_preview">معاينة المسار المتحركة (حرّك المؤشر أو اضغط زر التشغيل لتحريك الدبوس على طول المسار تلقائيًا خلال 30 ثانية)</string>
     <string name="toggle_3d">عرض ثلاثي الأبعاد</string>
     <string name="report_label">بلاغ طريق</string>
     <string name="add_report">أضف بلاغًا عند منتصف المسار</string>
