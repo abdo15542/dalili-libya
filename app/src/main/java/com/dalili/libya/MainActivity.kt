@@ -214,6 +214,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
             @JavascriptInterface
+            fun onTilesFailed() {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "تعذر تحميل بلاطات الخريطة — تحقق من اتصال الإنترنت، أو جرّب «إعادة تحميل الخريطة» من التفاصيل", Toast.LENGTH_LONG).show()
+                }
+            }
+            @JavascriptInterface
             fun onMapTapped(lon: Double, lat: Double) {
                 runOnUiThread {
                     tapLon = lon
