@@ -279,6 +279,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         setupDetails()
         updateSavedButtons()
         refreshReportsList()
+        // Launch map-first, like a global map app: the map fills the
+        // screen with only the slim search bar on top. The full
+        // directions form is hidden until the user taps "بحث" — in
+        // v4.0 it opened expanded and buried the map under a tall form,
+        // which is the opposite of how a map app should open.
+        findViewById<View>(R.id.topDetails).visibility = View.GONE
+        findViewById<Button>(R.id.buttonToggleSearch).text = "بحث"
+        findViewById<TextView>(R.id.textStatus).text = "ابحث عن مكان أو مدينة، أو اضغط «بحث» لاختيار وجهة ومسار."
     }
 
     // ---------- Search: place results list ----------
