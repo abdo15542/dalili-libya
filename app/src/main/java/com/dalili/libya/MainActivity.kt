@@ -48,6 +48,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var currentLon: Double? = null
     private var lastFromName: String = ""
     private var lastToName: String = ""
+    // Last point tapped on the map (ordinary tap, not pick mode).
+    private var tapLon: Double? = null
+    private var tapLat: Double? = null
     private var lastFromLon: Double? = null
     private var lastFromLat: Double? = null
     private var lastToLon: Double? = null
@@ -162,6 +165,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     lastToName = "نقطة مختارة على الخريطة"
                     Toast.makeText(this@MainActivity, "تم اختيار الوجهة من الخريطة — جارٍ حساب المسار إليها…", Toast.LENGTH_SHORT).show()
                     refetchCurrentRoute()
+                }
+            }
+            @JavascriptInterface
+            fun onMapTapped(lon: Double, lat: Double) {
+                runOnUiThread {
+                    tapLon = lon
+                    tapLat = lat
+                    findViewById<TextView>(R.id.textTapPoint).text =
+                        "نقطة على الخريطة — خط العرض ${"%.6f".format(lat)}، خط الطول ${"%.6f".format(lon)}"
+                    findViewById<View>(R.id.tapCard).visibility = View.VISIBLE
+                    findViewById<View>(R.id.bottomCard).visibility = View.GONE
                 }
             }
             @JavascriptInterface
@@ -328,6 +342,34 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<Button>(R.id.buttonPickDestination).setOnClickListener {
             webView.evaluateJavascript("window.setPickDestination(true);", null)
             Toast.makeText(this, "اضغط الآن على النقطة الدقيقة في الخريطة لتكون وجهتك", Toast.LENGTH_LONG).show()
+        }
+        // Tapped-place card: route to the tapped point, or close the
+        // card (clearing its pin) and bring the bottom sheet back.
+        findViewById<Button>(R.id.buttonUseTapDestination).setOnClickListener {
+            val lon = tapLon
+            val lat = tapLat
+            if (lon == null || lat == null) {
+                Toast.makeText(this, "اضغط على نقطة في الخريطة أولًا", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            findViewById<View>(R.id.tapCard).visibility = View.GONE
+            if (lastFromLon == null) {
+                val fromCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition]
+                lastFromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
+                lastFromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
+                lastFromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
+            }
+            lastToLon = lon
+            lastToLat = lat
+            lastToName = "نقطة مختارة على الخريطة"
+            refetchCurrentRoute()
+        }
+        findViewById<Button>(R.id.buttonCloseTap).setOnClickListener {
+            findViewById<View>(R.id.tapCard).visibility = View.GONE
+            webView.evaluateJavascript("window.clearTapMarker();", null)
+            if (findViewById<View>(R.id.topDetails).visibility != View.VISIBLE) {
+                findViewById<View>(R.id.bottomCard).visibility = View.VISIBLE
+            }
         }
 
         // Travel mode: car / bike / foot. Changing the mode re-fetches
@@ -611,6 +653,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             findViewById<View>(R.id.navBar).visibility = View.VISIBLE
             findViewById<View>(R.id.topCard).visibility = View.GONE
             findViewById<View>(R.id.bottomCard).visibility = View.GONE
+            findViewById<View>(R.id.tapCard).visibility = View.GONE
             findViewById<Button>(R.id.buttonRecenter).visibility = View.GONE
         } catch (e: Exception) {}
         speakStep(route, 0)
@@ -796,6 +839,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (route == selectedRoute) sb.append(" — المعروض على الخريطة")
         }
         sb.append("\n\nدرجة الأمان تقدير من بلاغات قريبة من هذا المسار فقط، وليست تصنيفًا رسميًا.")
+        // A new route replaces any tapped-place card, so the two
+        // bottom cards never stack on top of each other.
+        try { findViewById<View>(R.id.tapCard).visibility = View.GONE } catch (e: Exception) {}
         findViewById<TextView>(R.id.textRoutes).text = sb.toString()
         findViewById<TextView>(R.id.textStatus).text = "تم العثور على ${routes.size} مسارًا — ${modeLabel()}."
         // Once a route is found, collapse both panels to a slim top bar
