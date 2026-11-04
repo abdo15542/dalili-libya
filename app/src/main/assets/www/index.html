@@ -82,6 +82,12 @@ function addBuildings() {
 
 function addRouteLayer() {
   if (!currentGeometry) return;
+  // If the style is still loading (slow network, or the 6-second
+  // fallback just switched styles), adding a source/layer throws and
+  // — in the old setRoute — aborted everything after it, including
+  // the camera move. Skip here; the style.load handler below re-adds
+  // the layers as soon as the style is ready.
+  if (!map.isStyleLoaded()) return;
   var geojson = { type: 'Feature', geometry: currentGeometry };
   if (map.getSource('route')) {
     map.getSource('route').setData(geojson);
@@ -143,6 +149,10 @@ var lastAltGeometries = null;
 var lastAltSelected = 0;
 window.setRoutes = function(geometries, selectedIndex) {
   lastAltGeometries = geometries; lastAltSelected = selectedIndex;
+  // Same style-loading guard as addRouteLayer: without it, creating
+  // the alternatives source throws while the style loads, and the
+  // alternatives would be lost instead of deferred to style.load.
+  if (!map.isStyleLoaded()) return;
   try {
     var feats = [];
     for (var i = 0; i < geometries.length; i++) {
@@ -204,10 +214,21 @@ map.on('load', function() {
 // A style change (including the CARTO fallback) removes custom layers,
 // so buildings and the route must be re-added after every style load,
 // not only on the first map load. Alternatives too, from the last call.
+// If a route was requested while the style was still loading, its
+// camera fit was deferred here too — otherwise the map would stay on
+// the initial country view even after the line finally appeared.
+var routeFitPending = false;
 map.on('style.load', function() {
   addBuildings();
   addRouteLayer();
   try { if (lastAltGeometries) { window.setRoutes(lastAltGeometries, lastAltSelected); } } catch (e) {}
+  try {
+    if (routeFitPending && routeCoords.length > 0) {
+      var bounds = routeCoords.reduce(function(b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0]));
+      map.fitBounds(bounds, { padding: 60, pitch: 0 });
+      routeFitPending = false;
+    }
+  } catch (e2) {}
 });
 
 // If tiles still have not loaded after 6 seconds (was 12), switch to
@@ -299,7 +320,16 @@ map.on('click', function(e) {
 window.setRoute = function(geometry) {
   currentGeometry = geometry;
   routeCoords = geometry.coordinates || [];
-  addRouteLayer();
+  // AUDIT FIX (v3.11) — why the map stayed frozen on the initial
+  // country view with only time pills visible: the old code called
+  // addRouteLayer() first with no error handling, so if the style was
+  // still loading, adding the layer threw and aborted setRoute BEFORE
+  // fitBounds ever ran. The pills still appeared because they are DOM
+  // markers drawn by a separate call that needs no style. Now each
+  // step is independent: layers are best-effort, but the camera move
+  // always runs — a route must move the map even if its line has to
+  // wait for the style, in which case style.load fits it (above).
+  try { addRouteLayer(); } catch (e) {}
   // A route must be viewed flat: if the user previously enabled 3D,
   // the tilted view leaves huge buildings standing over the road and
   // the route itself is hard to follow. Pass pitch: 0 to fitBounds
@@ -307,12 +337,21 @@ window.setRoute = function(geometry) {
   // did not reliably flatten the view. 3D remains on demand via the
   // 3D button.
   if (routeCoords.length > 0) {
-    var bounds = routeCoords.reduce(function(b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0]));
-    map.fitBounds(bounds, { padding: 60, pitch: 0 });
+    routeFitPending = true;
+    try {
+      var bounds = routeCoords.reduce(function(b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0]));
+      map.fitBounds(bounds, { padding: 60, pitch: 0 });
+      // Only clear the deferred fit once the style is actually
+      // loaded: a camera move issued before load may be dropped, and
+      // then style.load above must still fit the route.
+      if (map.isStyleLoaded()) { routeFitPending = false; }
+    } catch (e2) {}
   }
-  if (!marker && routeCoords.length > 0) {
-    marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat(routeCoords[0]).addTo(map);
-  }
+  try {
+    if (!marker && routeCoords.length > 0) {
+      marker = new maplibregl.Marker({ color: '#E67E22' }).setLngLat(routeCoords[0]).addTo(map);
+    }
+  } catch (e3) {}
 };
 
 window.previewRoute = function(progress) {
