@@ -620,4 +620,58 @@
         android:textColor="#FFFFFF"
         android:textSize="16sp"
         android:visibility="gone" />
+
+    <!-- Tapped-place card, like Google Maps: tapping any point on the
+         map shows this card instead of doing nothing. It temporarily
+         replaces the bottom sheet, which returns when the card closes. -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/tapCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#FFFFFF"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="10dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="18dp">
+
+            <TextView
+                android:id="@+id/textTapPoint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#0B6B4F"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/buttonUseTapDestination"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/btn_accent_pill"
+                android:text="اجعلها وجهتي"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/buttonCloseTap"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/btn_secondary_pill"
+                android:text="إغلاق"
+                android:textColor="#0B6B4F"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 </FrameLayout>
