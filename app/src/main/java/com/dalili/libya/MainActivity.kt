@@ -18,6 +18,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.ListView
 import android.widget.SeekBar
 import android.widget.Spinner
@@ -274,6 +275,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         setupSearch()
         setupDirections()
         setupModesAndMap()
+        setupFloatingButtons()
         setupSheets()
         setupNavigationControls()
         setupDetails()
@@ -514,25 +516,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         updateModeButtons()
 
-        fun setMapMode(mode: String) {
-            val newMode = if (mode == mapMode) "normal" else mode
-            mapMode = newMode
-            when (newMode) {
-                "satellite" -> webView.evaluateJavascript("window.setSatellite(true);", null)
-                "dark" -> webView.evaluateJavascript("window.setDark(true);", null)
-                "topo" -> webView.evaluateJavascript("window.setTopo(true);", null)
-                else -> webView.evaluateJavascript("window.setSatellite(false);", null)
-            }
-            findViewById<Button>(R.id.buttonSatellite).text = if (newMode == "satellite") "العودة إلى الخريطة العادية" else "خريطة القمر الصناعي"
-            findViewById<Button>(R.id.buttonDarkMap).text = if (newMode == "dark") "العودة إلى الخريطة العادية" else "خريطة داكنة"
-            findViewById<Button>(R.id.buttonTopoMap).text = if (newMode == "topo") "العودة إلى الخريطة العادية" else "خريطة التضاريس"
-            Toast.makeText(this, when (newMode) {
-                "satellite" -> "خريطة القمر الصناعي مفعّلة — صور جوية حقيقية"
-                "dark" -> "خريطة داكنة مفعّلة"
-                "topo" -> "خريطة التضاريس مفعّلة — طرق وتضاريس"
-                else -> "خريطة عادية"
-            }, Toast.LENGTH_SHORT).show()
-        }
         findViewById<Button>(R.id.buttonSatellite).setOnClickListener { setMapMode("satellite") }
         findViewById<Button>(R.id.buttonDarkMap).setOnClickListener { setMapMode("dark") }
         findViewById<Button>(R.id.buttonTopoMap).setOnClickListener { setMapMode("topo") }
@@ -550,20 +533,60 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 Toast.makeText(this, "تم عرض المسار كاملًا على الخريطة", Toast.LENGTH_SHORT).show()
             }
         }
-        findViewById<Button>(R.id.button3d).setOnClickListener {
-            // 3D needs the vector map: return to normal first if a
-            // non-vector mode is on, keeping button texts in sync.
-            if (mapMode != "normal") {
-                mapMode = "normal"
-                webView.evaluateJavascript("window.setSatellite(false);", null)
-                findViewById<Button>(R.id.buttonSatellite).text = "خريطة القمر الصناعي"
-                findViewById<Button>(R.id.buttonDarkMap).text = "خريطة داكنة"
-                findViewById<Button>(R.id.buttonTopoMap).text = "خريطة التضاريس"
-            }
-            is3d = !is3d
-            webView.evaluateJavascript("window.set3d($is3d);", null)
-            Toast.makeText(this, if (is3d) "عرض ثلاثي الأبعاد مفعّل — انتقل إلى منطقة مبانٍ" else "عرض مسطح", Toast.LENGTH_SHORT).show()
+        findViewById<Button>(R.id.button3d).setOnClickListener { toggle3d() }
+    }
+
+    // Map mode and 3D as member functions so both the details-sheet
+    // buttons and the floating map buttons can call them.
+    private fun setMapMode(mode: String) {
+        val newMode = if (mode == mapMode) "normal" else mode
+        mapMode = newMode
+        when (newMode) {
+            "satellite" -> webView.evaluateJavascript("window.setSatellite(true);", null)
+            "dark" -> webView.evaluateJavascript("window.setDark(true);", null)
+            "topo" -> webView.evaluateJavascript("window.setTopo(true);", null)
+            else -> webView.evaluateJavascript("window.setSatellite(false);", null)
         }
+        findViewById<Button>(R.id.buttonSatellite).text = if (newMode == "satellite") "العودة إلى الخريطة العادية" else "خريطة القمر الصناعي"
+        findViewById<Button>(R.id.buttonDarkMap).text = if (newMode == "dark") "العودة إلى الخريطة العادية" else "خريطة داكنة"
+        findViewById<Button>(R.id.buttonTopoMap).text = if (newMode == "topo") "العودة إلى الخريطة العادية" else "خريطة التضاريس"
+        Toast.makeText(this, when (newMode) {
+            "satellite" -> "خريطة القمر الصناعي مفعّلة — صور جوية حقيقية"
+            "dark" -> "خريطة داكنة مفعّلة"
+            "topo" -> "خريطة التضاريس مفعّلة — طرق وتضاريس"
+            else -> "خريطة عادية"
+        }, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun toggle3d() {
+        // 3D needs the vector map: return to normal first if a
+        // non-vector mode is on, keeping button texts in sync.
+        if (mapMode != "normal") {
+            mapMode = "normal"
+            webView.evaluateJavascript("window.setSatellite(false);", null)
+            findViewById<Button>(R.id.buttonSatellite).text = "خريطة القمر الصناعي"
+            findViewById<Button>(R.id.buttonDarkMap).text = "خريطة داكنة"
+            findViewById<Button>(R.id.buttonTopoMap).text = "خريطة التضاريس"
+        }
+        is3d = !is3d
+        webView.evaluateJavascript("window.set3d($is3d);", null)
+        Toast.makeText(this, if (is3d) "عرض ثلاثي الأبعاد مفعّل — انتقل إلى منطقة مبانٍ" else "عرض مسطح", Toast.LENGTH_SHORT).show()
+    }
+
+    // Floating map buttons (v4.1 look & feel): my location, layers
+    // cycle, 3D — on the map itself, like a global map app.
+    private fun setupFloatingButtons() {
+        findViewById<ImageButton>(R.id.buttonFloatLocation).setOnClickListener { requestLocation() }
+        findViewById<ImageButton>(R.id.buttonFloatLayers).setOnClickListener {
+            val next = when (mapMode) {
+                "normal" -> "satellite"
+                "satellite" -> "dark"
+                "dark" -> "topo"
+                else -> "normal"
+            }
+            setMapMode(next)
+        }
+        findViewById<ImageButton>(R.id.buttonFloat3d).setOnClickListener { toggle3d() }
     }
 
     // ---------- Sheets (search / details panels) ----------
@@ -898,7 +921,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 "مقاطع الطريق (المسار المعروض):\n" + segs.joinToString("\n") { (road, km) -> "• $road — ${"%.1f".format(km)} كم" }
             }
         }
-        findViewById<TextView>(R.id.textStatus).text = "تم العثور على ${routes.size} مسارًا — ${modeLabel()}."
+        // Headline like a global map app: the displayed route's
+        // distance and minutes, large, instead of a small status line.
+        val headlineRoute = selectedRoute
+        findViewById<TextView>(R.id.textStatus).text = if (headlineRoute != null) {
+            "${"%.1f".format(headlineRoute.distanceKm)} كم • ${headlineRoute.durationMin.roundToInt()} دقيقة — من $fromName إلى $toName (${routes.size} مسارات)"
+        } else {
+            "تم العثور على ${routes.size} مسارًا — ${modeLabel()}."
+        }
         try {
             findViewById<View>(R.id.topDetails).visibility = View.GONE
             findViewById<Button>(R.id.buttonToggleSearch).text = "بحث"
