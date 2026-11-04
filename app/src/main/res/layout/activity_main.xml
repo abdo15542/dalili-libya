@@ -93,6 +93,8 @@
                 android:layout_height="52dp"
                 android:layout_marginTop="10dp"
                 android:background="@drawable/btn_secondary_pill"
+                android:drawableStart="@android:drawable/ic_menu_search"
+                android:drawablePadding="8dp"
                 android:text="بحث عن المكان"
                 android:textColor="#0B6B4F"
                 android:textSize="15sp"
@@ -296,6 +298,8 @@
                     android:layout_height="52dp"
                     android:layout_marginTop="10dp"
                     android:background="@drawable/btn_secondary_pill"
+                    android:drawableStart="@android:drawable/ic_menu_mylocation"
+                    android:drawablePadding="8dp"
                     android:text="@string/my_location"
                     android:textColor="#0B6B4F"
                     android:textSize="15sp"
@@ -355,12 +359,14 @@
                 android:layout_marginBottom="12dp"
                 android:background="@drawable/handle" />
 
+            <!-- Route headline, like Google's big time card: the
+                 selected route's distance and minutes, large. -->
             <TextView
                 android:id="@+id/textStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="#0B6B4F"
-                android:textSize="15sp"
+                android:textSize="21sp"
                 android:textStyle="bold" />
 
             <androidx.appcompat.widget.AppCompatButton
@@ -745,4 +751,47 @@
                 android:textStyle="bold" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
+
+    <!-- Floating map buttons, like a global map app: round buttons
+         on the right edge of the map itself, not buried in a form —
+         my location, map layers, 3D. -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="12dp"
+        android:orientation="vertical">
+
+        <ImageButton
+            android:id="@+id/buttonFloatLocation"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/btn_primary_pill"
+            android:contentDescription="موقعي الحالي"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:src="@android:drawable/ic_menu_mylocation" />
+
+        <ImageButton
+            android:id="@+id/buttonFloatLayers"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/btn_primary_pill"
+            android:contentDescription="طبقات الخريطة"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:src="@android:drawable/ic_menu_mapmode" />
+
+        <ImageButton
+            android:id="@+id/buttonFloat3d"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/btn_primary_pill"
+            android:contentDescription="عرض ثلاثي الأبعاد"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:src="@android:drawable/ic_menu_compass" />
+    </LinearLayout>
 </FrameLayout>
