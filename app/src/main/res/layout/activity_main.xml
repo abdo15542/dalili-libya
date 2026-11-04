@@ -63,6 +63,48 @@
 
             </LinearLayout>
 
+            <!-- Slim search bar, always visible on top of the map,
+                 like a global map app: type a place, pick a result,
+                 and it becomes the destination. -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="ابحث عن مكان أو مدينة أو عنوان"
+                android:textColor="#1F2A24"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/editPlaceSearch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/input_pill"
+                android:hint="مثل: شارع عمر المختار، طرابلس"
+                android:inputType="text"
+                android:padding="12dp"
+                android:textColor="#1F2A24"
+                android:textColorHint="#6B7A72"
+                android:textSize="14sp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/buttonSearchPlace"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/btn_secondary_pill"
+                android:text="بحث عن المكان"
+                android:textColor="#0B6B4F"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <ListView
+                android:id="@+id/listPlaceResults"
+                android:layout_width="match_parent"
+                android:layout_height="180dp"
+                android:layout_marginTop="10dp"
+                android:visibility="gone" />
+
             <LinearLayout
                 android:id="@+id/topDetails"
                 android:layout_width="match_parent"
@@ -81,47 +123,6 @@
                     android:layout_height="1dp"
                     android:layout_marginTop="14dp"
                     android:background="#E8EDEA" />
-
-                <!-- Place search: type a street, neighbourhood or place,
-                     pick one of the results, and it becomes the destination. -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:text="ابحث عن مكان أو مدينة أو عنوان"
-                    android:textColor="#1F2A24"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-
-                <EditText
-                    android:id="@+id/editPlaceSearch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/input_pill"
-                    android:hint="مثل: شارع عمر المختار، طرابلس"
-                    android:inputType="text"
-                    android:padding="12dp"
-                    android:textColor="#1F2A24"
-                    android:textColorHint="#6B7A72"
-                    android:textSize="14sp" />
-
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/buttonSearchPlace"
-                    android:layout_width="match_parent"
-                    android:layout_height="52dp"
-                    android:layout_marginTop="10dp"
-                    android:background="@drawable/btn_secondary_pill"
-                    android:text="بحث عن المكان"
-                    android:textColor="#0B6B4F"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <ListView
-                    android:id="@+id/listPlaceResults"
-                    android:layout_width="match_parent"
-                    android:layout_height="180dp"
-                    android:layout_marginTop="10dp"
-                    android:visibility="gone" />
 
                 <!-- Directions: from / to cities, with an exact place
                      inside the destination as an option. -->
