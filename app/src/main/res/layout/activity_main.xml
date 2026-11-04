@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Dalili Libya v4.0 — rebuilt from scratch (document Phase 1).
+     Layout is search-first, like a global map app: a search bar on top,
+     directions underneath it, a small collapsed route sheet at the
+     bottom, a navigation banner only while driving, and a tapped-place
+     card. All panels are native Android views over a full-screen
+     MapLibre WebView; the map itself is never covered by an open panel
+     except the small bottom sheet. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -11,7 +18,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Top floating search card -->
+    <!-- Top floating search + directions card -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/topCard"
         android:layout_width="match_parent"
@@ -62,158 +69,243 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/slogan"
-                android:textColor="#6B7A72"
-                android:textSize="13sp" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/slogan"
+                    android:textColor="#6B7A72"
+                    android:textSize="13sp" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="14dp"
-                android:background="#E8EDEA" />
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="14dp"
+                    android:background="#E8EDEA" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:text="@string/from_label"
-                android:textColor="#1F2A24"
-                android:textSize="13sp"
-                android:textStyle="bold" />
+                <!-- Place search: type a street, neighbourhood or place,
+                     pick one of the results, and it becomes the destination. -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="ابحث عن مكان أو مدينة أو عنوان"
+                    android:textColor="#1F2A24"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
 
-            <Spinner
-                android:id="@+id/spinnerFrom"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/input_pill"
-                android:padding="12dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="@string/to_label"
-                android:textColor="#1F2A24"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <Spinner
-                android:id="@+id/spinnerTo"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/input_pill"
-                android:padding="12dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="مكان دقيق داخل الوجهة (اختياري)"
-                android:textColor="#1F2A24"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <EditText
-                android:id="@+id/editDestinationSearch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/input_pill"
-                android:hint="ابحث عن شارع أو حي أو مكان… مثل: شارع عمر المختار، طرابلس"
-                android:inputType="text"
-                android:padding="12dp"
-                android:textColor="#1F2A24"
-                android:textColorHint="#6B7A72"
-                android:textSize="14sp" />
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/buttonSearchDestination"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/btn_secondary_pill"
-                android:text="بحث عن المكان الدقيق"
-                android:textColor="#0B6B4F"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/buttonPickDestination"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/btn_secondary_pill"
-                android:text="اختر الوجهة بالضغط على الخريطة"
-                android:textColor="#0B6B4F"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="وسيلة التنقل"
-                android:textColor="#0B6B4F"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:orientation="horizontal">
+                <EditText
+                    android:id="@+id/editPlaceSearch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/input_pill"
+                    android:hint="مثل: شارع عمر المختار، طرابلس"
+                    android:inputType="text"
+                    android:padding="12dp"
+                    android:textColor="#1F2A24"
+                    android:textColorHint="#6B7A72"
+                    android:textSize="14sp" />
 
                 <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/buttonModeCar"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_primary_pill"
-                    android:text="سيارة"
-                    android:textColor="#FFFFFF"
+                    android:id="@+id/buttonSearchPlace"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/btn_secondary_pill"
+                    android:text="بحث عن المكان"
+                    android:textColor="#0B6B4F"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
+                <ListView
+                    android:id="@+id/listPlaceResults"
+                    android:layout_width="match_parent"
+                    android:layout_height="180dp"
+                    android:layout_marginTop="10dp"
+                    android:visibility="gone" />
+
+                <!-- Directions: from / to cities, with an exact place
+                     inside the destination as an option. -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="@string/from_label"
+                    android:textColor="#1F2A24"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <Spinner
+                    android:id="@+id/spinnerFrom"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/input_pill"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/to_label"
+                    android:textColor="#1F2A24"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <Spinner
+                    android:id="@+id/spinnerTo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/input_pill"
+                    android:padding="12dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="مكان دقيق داخل الوجهة (اختياري)"
+                    android:textColor="#1F2A24"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/editDestinationSearch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/input_pill"
+                    android:hint="ابحث عن شارع أو حي أو مكان…"
+                    android:inputType="text"
+                    android:padding="12dp"
+                    android:textColor="#1F2A24"
+                    android:textColorHint="#6B7A72"
+                    android:textSize="14sp" />
+
                 <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/buttonModeBike"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
+                    android:id="@+id/buttonSearchDestination"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
                     android:background="@drawable/btn_secondary_pill"
-                    android:text="دراجة"
+                    android:text="بحث عن المكان الدقيق"
                     android:textColor="#0B6B4F"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/buttonModeFoot"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
+                    android:id="@+id/buttonPickDestination"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
                     android:background="@drawable/btn_secondary_pill"
-                    android:text="مشي"
+                    android:text="اختر الوجهة بالضغط على الخريطة"
                     android:textColor="#0B6B4F"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
-            </LinearLayout>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="وسيلة التنقل"
+                    android:textColor="#0B6B4F"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:orientation="horizontal">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonModeCar"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/btn_primary_pill"
+                        android:text="سيارة"
+                        android:textColor="#FFFFFF"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonModeBike"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="دراجة"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonModeFoot"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="مشي"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+                <!-- Saved places: tap routes to the saved place;
+                     long-press saves the current destination as it. -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="أماكني المحفوظة (اضغط للذهاب، واضغط مطولًا للحفظ)"
+                    android:textColor="#0B6B4F"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonHomePlace"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="المنزل"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/buttonWorkPlace"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/btn_secondary_pill"
+                        android:text="العمل"
+                        android:textColor="#0B6B4F"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/buttonLocation"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/btn_secondary_pill"
+                    android:text="@string/my_location"
+                    android:textColor="#0B6B4F"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
 
                 <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/buttonFind"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="56dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_primary_pill"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/btn_accent_pill"
                     android:text="@string/find_routes"
                     android:textColor="#FFFFFF"
                     android:textSize="16sp"
@@ -221,33 +313,22 @@
 
                 <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/buttonSwap"
-                    android:layout_width="wrap_content"
-                    android:layout_height="56dp"
-                    android:layout_marginStart="10dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
                     android:background="@drawable/btn_secondary_pill"
-                    android:text="تبديل"
+                    android:text="تبديل الانطلاق والوجهة"
                     android:textColor="#0B6B4F"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
             </LinearLayout>
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/buttonLocation"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/btn_secondary_pill"
-                android:text="@string/my_location"
-                android:textColor="#0B6B4F"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Bottom floating route sheet, collapsed by default -->
+    <!-- Bottom floating route sheet, collapsed by default: only the
+         status line, the voice button and the show-more toggle are
+         visible. Everything else lives inside scrollDetails. -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/bottomCard"
         android:layout_width="match_parent"
@@ -315,14 +396,6 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <!-- v3.10: the route list used to sit outside this
-                         collapsible area, so the "found routes" sheet
-                         was always tall and covered most of the map
-                         (see the user's screenshots: a full route list
-                         plus two big buttons). Now it lives inside the
-                         collapsed details: the closed sheet shows only
-                         the status line, the voice button and the
-                         show-more toggle, and the map stays visible. -->
                     <TextView
                         android:id="@+id/textRoutes"
                         android:layout_width="match_parent"
@@ -330,10 +403,19 @@
                         android:textColor="#1F2A24"
                         android:textSize="14sp" />
 
+                    <TextView
+                        android:id="@+id/textSegments"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textColor="#1F2A24"
+                        android:textSize="14sp" />
+
                     <androidx.appcompat.widget.AppCompatButton
                         android:id="@+id/buttonNextRoute"
                         android:layout_width="match_parent"
                         android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
                         android:background="@drawable/btn_secondary_pill"
                         android:text="عرض المسار التالي على الخريطة"
                         android:textColor="#0B6B4F"
@@ -407,47 +489,35 @@
                         android:textStyle="bold" />
 
                     <TextView
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="استهلاك الوقود (لتر / 100 كم)"
-                        android:textColor="#0B6B4F"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
+                        android:layout_marginTop="14dp"
+                        android:text="@string/fuel_note"
+                        android:textColor="#6B7A72"
+                        android:textSize="13sp" />
 
                     <EditText
                         android:id="@+id/editConsumption"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:background="@drawable/input_pill"
+                        android:hint="استهلاك الوقود (لتر/100 كم) — الافتراضي 8"
                         android:inputType="numberDecimal"
                         android:padding="12dp"
-                        android:text="8" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:text="سعر اللتر التقديري (دينار)"
-                        android:textColor="#0B6B4F"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
+                        android:textColor="#1F2A24"
+                        android:textSize="14sp" />
 
                     <EditText
                         android:id="@+id/editFuelPrice"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
                         android:background="@drawable/input_pill"
+                        android:hint="سعر اللتر (دينار) — الافتراضي 0.15"
                         android:inputType="numberDecimal"
                         android:padding="12dp"
-                        android:text="0.15" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/fuel_note"
-                        android:textColor="#6B7A72"
-                        android:textSize="12sp" />
+                        android:textColor="#1F2A24"
+                        android:textSize="14sp" />
 
                     <androidx.appcompat.widget.AppCompatButton
                         android:id="@+id/buttonFuel"
@@ -455,7 +525,7 @@
                         android:layout_height="52dp"
                         android:layout_marginTop="10dp"
                         android:background="@drawable/btn_secondary_pill"
-                        android:text="محطات وقود على طول المسار"
+                        android:text="محطات وقود على المسار"
                         android:textColor="#0B6B4F"
                         android:textSize="15sp"
                         android:textStyle="bold" />
@@ -464,29 +534,29 @@
                         android:id="@+id/textFuel"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
                         android:textColor="#1F2A24"
-                        android:textSize="13sp"
-                        android:paddingTop="8dp" />
+                        android:textSize="14sp" />
 
                     <TextView
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
                         android:text="@string/time_preview"
-                        android:textColor="#0B6B4F"
-                        android:layout_marginTop="16dp"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
+                        android:textColor="#6B7A72"
+                        android:textSize="13sp" />
 
                     <SeekBar
                         android:id="@+id/seekPreview"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:max="100" />
+                        android:layout_marginTop="6dp" />
 
                     <androidx.appcompat.widget.AppCompatButton
                         android:id="@+id/buttonPreviewAnim"
                         android:layout_width="match_parent"
                         android:layout_height="52dp"
+                        android:layout_marginTop="10dp"
                         android:background="@drawable/btn_secondary_pill"
                         android:text="تشغيل معاينة الرحلة المتحركة"
                         android:textColor="#0B6B4F"
@@ -494,11 +564,11 @@
                         android:textStyle="bold" />
 
                     <TextView
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
                         android:text="@string/report_label"
-                        android:textColor="#0B6B4F"
-                        android:layout_marginTop="16dp"
+                        android:textColor="#1F2A24"
                         android:textSize="13sp"
                         android:textStyle="bold" />
 
@@ -524,30 +594,23 @@
                         android:id="@+id/textReports"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
                         android:textColor="#1F2A24"
-                        android:textSize="13sp"
-                        android:paddingTop="8dp" />
+                        android:textSize="14sp" />
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
                         android:text="@string/traffic_warning"
                         android:textColor="#6B7A72"
-                        android:textSize="11sp"
-                        android:paddingTop="14dp" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/safety_note"
-                        android:textColor="#6B7A72"
-                        android:textSize="11sp"
-                        android:paddingBottom="8dp" />
+                        android:textSize="13sp" />
 
                 </LinearLayout>
             </ScrollView>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
+
     <!-- Navigation banner, like Google Maps: top instruction + ETA.
          Hidden except while live voice navigation is running. -->
     <com.google.android.material.card.MaterialCardView
@@ -628,9 +691,9 @@
         android:textSize="16sp"
         android:visibility="gone" />
 
-    <!-- Tapped-place card, like Google Maps: tapping any point on the
-         map shows this card instead of doing nothing. It temporarily
-         replaces the bottom sheet, which returns when the card closes. -->
+    <!-- Tapped-place card: tapping any point on the map shows this card
+         instead of doing nothing. It temporarily replaces the bottom
+         sheet, which returns when the card closes. -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/tapCard"
         android:layout_width="match_parent"
