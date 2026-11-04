@@ -281,14 +281,6 @@
                 android:textSize="15sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/textRoutes"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#1F2A24"
-                android:textSize="14sp"
-                android:paddingTop="4dp" />
-
             <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/buttonVoice"
                 android:layout_width="match_parent"
@@ -322,6 +314,21 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
+
+                    <!-- v3.10: the route list used to sit outside this
+                         collapsible area, so the "found routes" sheet
+                         was always tall and covered most of the map
+                         (see the user's screenshots: a full route list
+                         plus two big buttons). Now it lives inside the
+                         collapsed details: the closed sheet shows only
+                         the status line, the voice button and the
+                         show-more toggle, and the map stays visible. -->
+                    <TextView
+                        android:id="@+id/textRoutes"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="#1F2A24"
+                        android:textSize="14sp" />
 
                     <androidx.appcompat.widget.AppCompatButton
                         android:id="@+id/buttonNextRoute"
