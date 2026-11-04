@@ -248,6 +248,11 @@ setTimeout(function() {
         try {
           if (!satelliteOn && !darkOn && !topoOn && !map.areTilesLoaded()) {
             document.getElementById('note').textContent = 'تعذر تحميل بلاطات الخريطة — تحقق من الاتصال، أو اضغط «إعادة تحميل الخريطة» من التفاصيل.';
+            // AUDIT FIX (v4.1.1): the note sits at the top of the map,
+            // behind the native search card, so the user never saw this
+            // warning — a tile-less map looked silently dead. Tell the
+            // native side too, so it can show a Toast over everything.
+            try { DaliliBridge.onTilesFailed(); } catch (tf) {}
           }
         } catch (e2) {}
       }, 10000);
@@ -259,6 +264,7 @@ map.on('error', function(e) {
   try {
     if (e && e.error && e.error.status === 0) {
       document.getElementById('note').textContent = 'تعذر تحميل بلاطات الخريطة — تحقق من الاتصال بالإنترنت.';
+      try { DaliliBridge.onTilesFailed(); } catch (tf) {}
     }
   } catch (err) {}
 });
@@ -302,7 +308,15 @@ var pickDestination = false;
 window.setPickDestination = function(on) { pickDestination = !!on; };
 map.on('click', function(e) {
   var lng = e.lngLat.lng, lat = e.lngLat.lat;
-  try { map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 15), duration: 400 }); } catch (err) {}
+  // AUDIT FIX (v4.1.1) — why tapping a place looked dead on the user's
+  // phone although the tap card opened: the old move was a 400 ms
+  // easeTo animation whose errors were swallowed, so on a slow or
+  // tile-less map the camera could stay put (and with no tiles drawn,
+  // even a moved camera looks identical). A tap must move NOW and
+  // provably: jumpTo is synchronous and cannot be lost to an animation
+  // conflict, and the pin is made click-through so re-tapping the same
+  // pin still reaches this handler instead of being eaten by the marker.
+  try { map.jumpTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 15) }); } catch (err) {}
   if (pickDestination) {
     pickDestination = false;
     window.setDestination(lng, lat, 'الوجهة المختارة');
@@ -310,7 +324,10 @@ map.on('click', function(e) {
     try { DaliliBridge.onDestinationPicked(lng, lat); } catch (err) {}
   } else {
     try {
-      if (!tapMarker) { tapMarker = new maplibregl.Marker({ color: '#1976D2' }).addTo(map); }
+      if (!tapMarker) {
+        tapMarker = new maplibregl.Marker({ color: '#1976D2' }).addTo(map);
+        try { tapMarker.getElement().style.pointerEvents = 'none'; } catch (pe) {}
+      }
       tapMarker.setLngLat([lng, lat]);
     } catch (err) {}
     try { DaliliBridge.onMapTapped(lng, lat); } catch (err) {}
