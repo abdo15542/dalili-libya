@@ -144,6 +144,27 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
             @JavascriptInterface
+            fun onDestinationPicked(lon: Double, lat: Double) {
+                runOnUiThread {
+                    // Exact point tapped on the map becomes the
+                    // destination, replacing the city centre. If no
+                    // route origin was set yet, use the same origin
+                    // logic as the Find button (current location or
+                    // the From city).
+                    if (lastFromLon == null) {
+                        val fromCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition]
+                        lastFromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
+                        lastFromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
+                        lastFromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
+                    }
+                    lastToLon = lon
+                    lastToLat = lat
+                    lastToName = "نقطة مختارة على الخريطة"
+                    Toast.makeText(this@MainActivity, "تم اختيار الوجهة من الخريطة — جارٍ حساب المسار إليها…", Toast.LENGTH_SHORT).show()
+                    refetchCurrentRoute()
+                }
+            }
+            @JavascriptInterface
             fun onMapDragged() {
                 runOnUiThread {
                     // User dragged the map during navigation: pause
@@ -249,6 +270,64 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
                 }
             }.start()
+        }
+
+        // Exact destination: search a street, neighbourhood or place
+        // by name (Nominatim / OpenStreetMap, restricted to Libya),
+        // or pick the exact point on the map. Either replaces the
+        // city-centre destination, which was the precision problem:
+        // "Tripoli" alone only ever meant the centre of Tripoli.
+        findViewById<Button>(R.id.buttonSearchDestination).setOnClickListener {
+            val query = findViewById<EditText>(R.id.editDestinationSearch).text.toString().trim()
+            if (query.isEmpty()) {
+                Toast.makeText(this, "اكتب اسم شارع أو حي أو مكان أولًا", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            findViewById<TextView>(R.id.textStatus).text = "جارٍ البحث عن «$query»…"
+            Thread {
+                try {
+                    val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+                    val url = java.net.URL("https://nominatim.openstreetmap.org/search?format=json&q=$encoded&countrycodes=ly&limit=1")
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.setRequestProperty("User-Agent", "DaliliLibya/3.8")
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 15000
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val arr = org.json.JSONArray(body)
+                    if (arr.length() == 0) {
+                        runOnUiThread {
+                            findViewById<TextView>(R.id.textStatus).text = "لم يُعثر على «$query» في خريطة ليبيا."
+                            Toast.makeText(this, "لم يُعثر على هذا المكان — جرّب اسم شارع أو حي مع اسم المدينة، أو اختر النقطة بالضغط على الخريطة.", Toast.LENGTH_LONG).show()
+                        }
+                        return@Thread
+                    }
+                    val first = arr.getJSONObject(0)
+                    val dLat = first.getDouble("lat")
+                    val dLon = first.getDouble("lon")
+                    val dName = first.optString("display_name", query)
+                    runOnUiThread {
+                        if (lastFromLon == null) {
+                            val fromCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition]
+                            lastFromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
+                            lastFromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
+                            lastFromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
+                        }
+                        lastToLon = dLon
+                        lastToLat = dLat
+                        lastToName = dName
+                        Toast.makeText(this, "الوجهة الدقيقة: $dName", Toast.LENGTH_LONG).show()
+                        refetchCurrentRoute()
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        findViewById<TextView>(R.id.textStatus).text = "تعذر البحث عن المكان: ${e.message}. تحقق من الاتصال بالإنترنت."
+                    }
+                }
+            }.start()
+        }
+        findViewById<Button>(R.id.buttonPickDestination).setOnClickListener {
+            webView.evaluateJavascript("window.setPickDestination(true);", null)
+            Toast.makeText(this, "اضغط الآن على النقطة الدقيقة في الخريطة لتكون وجهتك", Toast.LENGTH_LONG).show()
         }
 
         // Travel mode: car / bike / foot. Changing the mode re-fetches
@@ -599,8 +678,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
             // Google shows short remainders in metres, not "0.6 كم".
             val remText = if (remKm < 1.0) "${(remKm * 1000).roundToInt()} متر" else "${"%.1f".format(remKm)} كم"
+            // Straight-line distance to the exact destination point,
+            // so the user always knows how close they really are,
+            // even when the remaining route distance differs.
+            var destText = ""
+            val curLat = lastNavLat
+            val curLon = lastNavLon
+            val dLat = lastToLat
+            val dLon = lastToLon
+            if (curLat != null && curLon != null && dLat != null && dLon != null) {
+                val d = distanceMetres(curLat, curLon, dLat, dLon)
+                destText = if (d < 1000.0) " — الوجهة على بعد ${d.roundToInt()} متر" else " — الوجهة على بعد ${"%.1f".format(d / 1000.0)} كم"
+            }
             findViewById<TextView>(R.id.textNavEta).text =
-                "باقي $remText — ${remMin.roundToInt()} دقيقة — الوصول ${timeFmt.format(arrival.time)}"
+                "باقي $remText — ${remMin.roundToInt()} دقيقة — الوصول ${timeFmt.format(arrival.time)}$destText"
         } catch (e: Exception) {}
     }
 
@@ -622,6 +713,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // being driven on is always in the centre, like Google Maps.
         if (isFollowing) {
             webView.evaluateJavascript("window.followUser($lon, $lat, $bearing);", null)
+        }
+        // Arrival: previously there was no arrival signal at all — the
+        // app only stopped when the last step's manoeuvre was passed,
+        // with no message. Now, within 100 metres of the exact
+        // destination point (GPS in a city is typically accurate to
+        // 10–30 m, so 100 m avoids false misses from road offset),
+        // announce arrival clearly and stop navigation.
+        val destLat = lastToLat
+        val destLon = lastToLon
+        if (destLat != null && destLon != null) {
+            val distToDest = distanceMetres(lat, lon, destLat, destLon)
+            if (distToDest <= 100.0) {
+                val destName = lastToName
+                stopNavigation()
+                tts?.speak("وصلت إلى وجهتك: $destName", TextToSpeech.QUEUE_FLUSH, null, "arrived")
+                Toast.makeText(this, "وصلت إلى وجهتك: $destName", Toast.LENGTH_LONG).show()
+                findViewById<TextView>(R.id.textStatus).text = "وصلت إلى وجهتك: $destName"
+                return
+            }
         }
         updateNavBanner(route, navStepIndex)
         // Speak the next step when the user is within 200 metres of its manoeuvre.
@@ -702,6 +812,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun showRouteOnMap(route: RouteInfo) {
         val js = "window.setRoute(${route.geometryJson});"
         webView.evaluateJavascript(js, null)
+        // Mark the exact destination with the red pin, so the route
+        // end is visible on the map and not just a city name.
+        val dLon = lastToLon
+        val dLat = lastToLat
+        if (dLon != null && dLat != null) {
+            webView.evaluateJavascript("window.setDestination($dLon, $dLat, ${org.json.JSONObject.quote(lastToName)});", null)
+        }
         drawAllRoutes()
     }
 
