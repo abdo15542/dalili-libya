@@ -192,6 +192,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // AUDIT FIX (v4.1.2): print the version in the title, from
+        // BuildConfig, so every screenshot proves which build is
+        // installed — the 4.1 vs 4.1.1 confusion must never recur.
+        try { findViewById<TextView>(R.id.textAppTitle).text = "دليلي ليبيا ${BuildConfig.VERSION_NAME}" } catch (e: Exception) {}
         tts = TextToSpeech(this, this)
 
         webView = findViewById(R.id.webView)
@@ -220,12 +224,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
             @JavascriptInterface
-            fun onMapTapped(lon: Double, lat: Double) {
+            fun onMapTapped(lon: Double, lat: Double, zoom: Double) {
                 runOnUiThread {
                     tapLon = lon
                     tapLat = lat
                     findViewById<TextView>(R.id.textTapPoint).text =
-                        "نقطة على الخريطة — خط العرض ${"%.6f".format(lat)}، خط الطول ${"%.6f".format(lon)}"
+                        "نقطة على الخريطة — خط العرض ${"%.6f".format(lat)}، خط الطول ${"%.6f".format(lon)} • زوم ${zoom.toInt()}"
                     findViewById<View>(R.id.tapCard).visibility = View.VISIBLE
                     findViewById<View>(R.id.bottomCard).visibility = View.GONE
                 }
