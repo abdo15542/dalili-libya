@@ -14,7 +14,11 @@ data class StepInfo(
     val durationMin: Double = 0.0,
     // Maneuver modifier ("left", "right", "slight left", ...), kept so
     // the banner can show a turn arrow for the next step, like Google.
-    val modifier: String = ""
+    val modifier: String = "",
+    // The OSRM road name for this step, kept separately from the Arabic
+    // instruction text so the route can be summarised as road segments
+    // (v4.0 document requirement: every route lists the roads it uses).
+    val road: String = ""
 )
 
 data class RouteInfo(
@@ -95,7 +99,7 @@ object Routing {
                                 val lon = loc?.optDouble(0) ?: 0.0
                                 val lat = loc?.optDouble(1) ?: 0.0
                                 val text = arabicInstruction(type, modifier, name)
-                                if (text.isNotBlank()) steps.add(StepInfo(text, lon, lat, s.optDouble("distance") / 1000.0, s.optDouble("duration") / 60.0, modifier))
+                                if (text.isNotBlank()) steps.add(StepInfo(text, lon, lat, s.optDouble("distance") / 1000.0, s.optDouble("duration") / 60.0, modifier, name))
                             }
                         }
                     }
@@ -146,6 +150,56 @@ object Routing {
 
     fun fuelLitres(distanceKm: Double, consumptionPer100Km: Double): Double {
         return distanceKm * consumptionPer100Km / 100.0
+    }
+
+    /** Road segments of a route: consecutive steps on the same road,
+     * summed, so the route details can list "road — distance" pairs.
+     * Unnamed steps join the previous segment instead of creating a
+     * "no name" entry for every turn. Returns (road, km) pairs. */
+    fun segments(route: RouteInfo): List<Pair<String, Double>> {
+        val out = mutableListOf<Pair<String, Double>>()
+        for (s in route.steps) {
+            val road = s.road.ifBlank { out.lastOrNull()?.first ?: "طريق غير مسمّى" }
+            if (out.isNotEmpty() && out.last().first == road) {
+                val last = out.removeAt(out.size - 1)
+                out.add(Pair(road, last.second + s.distanceKm))
+            } else {
+                out.add(Pair(road, s.distanceKm))
+            }
+        }
+        return out.filter { it.second > 0.05 }
+    }
+
+    /** Shortest distance in metres from a point to a route polyline.
+     * Used for off-route detection (v4.0 rerouting): the route is a
+     * list of (lon, lat) points, and the distance to each segment is
+     * computed in a local equirectangular projection, which is accurate
+     * enough at road scale. Returns Double.MAX_VALUE for an empty route. */
+    fun distanceToRoute(lat: Double, lon: Double, route: RouteInfo): Double {
+        if (route.coordinates.size < 2) return Double.MAX_VALUE
+        val r = 6371000.0
+        val latR = Math.toRadians(lat)
+        fun proj(p: Pair<Double, Double>): Pair<Double, Double> {
+            val x = Math.toRadians(p.first) * kotlin.math.cos(latR) * r
+            val y = Math.toRadians(p.second) * r
+            return Pair(x, y)
+        }
+        val pt = proj(Pair(lon, lat))
+        var best = Double.MAX_VALUE
+        for (i in 0 until route.coordinates.size - 1) {
+            val a = proj(route.coordinates[i])
+            val b = proj(route.coordinates[i + 1])
+            val dx = b.first - a.first
+            val dy = b.second - a.second
+            val len2 = dx * dx + dy * dy
+            val t = if (len2 == 0.0) 0.0 else ((pt.first - a.first) * dx + (pt.second - a.second) * dy) / len2
+            val tc = t.coerceIn(0.0, 1.0)
+            val cx = a.first + tc * dx
+            val cy = a.second + tc * dy
+            val d = kotlin.math.sqrt((pt.first - cx) * (pt.first - cx) + (pt.second - cy) * (pt.second - cy))
+            if (d < best) best = d
+        }
+        return best
     }
 
     /** Heuristic only, counted from reports near this route, not all reports.
