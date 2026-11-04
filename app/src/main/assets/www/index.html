@@ -258,17 +258,42 @@ window.setDestination = function(lon, lat, name) {
     destMarker.setPopup(new maplibregl.Popup({ offset: 25 }).setText(name || 'الوجهة'));
   } catch (e) {}
 };
+window.openDestinationPopup = function() {
+  try { if (destMarker && destMarker.getPopup() && !destMarker.getPopup().isOpen()) { destMarker.togglePopup(); } } catch (e) {}
+};
 
-// Pick-the-destination-on-the-map mode: while on, the next tap on
-// the map sends its exact coordinates back to Kotlin, which routes
-// to that point instead of the city centre. This is the fallback
-// when a street or building is not in the map's place database.
+// Tapped-point marker, for ordinary map taps (see the click handler).
+var tapMarker = null;
+window.clearTapMarker = function() {
+  try { if (tapMarker) { tapMarker.remove(); tapMarker = null; } } catch (e) {}
+};
+
+// AUDIT FIX (v3.9) — why tapping a place did nothing: the old click
+// handler returned immediately unless pick mode was on, so an ordinary
+// tap on a place gave zero feedback — no move, no pin, no info —
+// unlike a global map app, where tapping a place centres it and shows
+// details. And even in pick mode the only feedback waited for the
+// network route fetch, so a slow or failed fetch looked like a dead
+// map. Now EVERY tap responds instantly on the map itself: the map
+// moves to the tapped point and drops a pin, before any network call.
+// Pick mode routes to it; an ordinary tap shows the tapped-place card.
 var pickDestination = false;
 window.setPickDestination = function(on) { pickDestination = !!on; };
 map.on('click', function(e) {
-  if (!pickDestination) return;
-  pickDestination = false;
-  try { DaliliBridge.onDestinationPicked(e.lngLat.lng, e.lngLat.lat); } catch (err) {}
+  var lng = e.lngLat.lng, lat = e.lngLat.lat;
+  try { map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 15), duration: 400 }); } catch (err) {}
+  if (pickDestination) {
+    pickDestination = false;
+    window.setDestination(lng, lat, 'الوجهة المختارة');
+    window.openDestinationPopup();
+    try { DaliliBridge.onDestinationPicked(lng, lat); } catch (err) {}
+  } else {
+    try {
+      if (!tapMarker) { tapMarker = new maplibregl.Marker({ color: '#1976D2' }).addTo(map); }
+      tapMarker.setLngLat([lng, lat]);
+    } catch (err) {}
+    try { DaliliBridge.onMapTapped(lng, lat); } catch (err) {}
+  }
 });
 
 window.setRoute = function(geometry) {
