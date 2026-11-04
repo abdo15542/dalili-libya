@@ -330,7 +330,9 @@ map.on('click', function(e) {
       }
       tapMarker.setLngLat([lng, lat]);
     } catch (err) {}
-    try { DaliliBridge.onMapTapped(lng, lat); } catch (err) {}
+    // AUDIT FIX (v4.1.2): pass the zoom AFTER the jump, so the tap card
+    // itself proves whether the camera moved (zoom >= 15) or stayed put.
+    try { DaliliBridge.onMapTapped(lng, lat, map.getZoom()); } catch (err) {}
   }
 });
 
