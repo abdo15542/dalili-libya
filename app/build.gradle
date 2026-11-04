@@ -11,8 +11,8 @@ android {
         applicationId = "com.dalili.libya"
         minSdk = 24
         targetSdk = 34
-        versionCode = 17
-        versionName = "3.10"
+        versionCode = 18
+        versionName = "3.11"
     }
 
     buildTypes {
