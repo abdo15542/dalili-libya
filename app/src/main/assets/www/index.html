@@ -242,6 +242,35 @@ map.on('error', function(e) {
   } catch (err) {}
 });
 
+// Destination pin: a red marker at the exact destination point, so
+// the user can see precisely where the route ends — previously the
+// only marker was the orange origin/user marker, and the destination
+// was just a city centre with nothing marking it on the map.
+var destMarker = null;
+window.setDestination = function(lon, lat, name) {
+  try {
+    if (lon == null || lat == null) return;
+    if (!destMarker) {
+      destMarker = new maplibregl.Marker({ color: '#D32F2F' }).addTo(map);
+    }
+    destMarker.setLngLat([lon, lat]);
+    // setText (not setHTML) so a place name can never inject markup.
+    destMarker.setPopup(new maplibregl.Popup({ offset: 25 }).setText(name || 'الوجهة'));
+  } catch (e) {}
+};
+
+// Pick-the-destination-on-the-map mode: while on, the next tap on
+// the map sends its exact coordinates back to Kotlin, which routes
+// to that point instead of the city centre. This is the fallback
+// when a street or building is not in the map's place database.
+var pickDestination = false;
+window.setPickDestination = function(on) { pickDestination = !!on; };
+map.on('click', function(e) {
+  if (!pickDestination) return;
+  pickDestination = false;
+  try { DaliliBridge.onDestinationPicked(e.lngLat.lng, e.lngLat.lat); } catch (err) {}
+});
+
 window.setRoute = function(geometry) {
   currentGeometry = geometry;
   routeCoords = geometry.coordinates || [];
