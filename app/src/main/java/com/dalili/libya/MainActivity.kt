@@ -192,10 +192,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        // AUDIT FIX (v4.1.2): print the version in the title, from
-        // BuildConfig, so every screenshot proves which build is
-        // installed — the 4.1 vs 4.1.1 confusion must never recur.
-        try { findViewById<TextView>(R.id.textAppTitle).text = "دليلي ليبيا ${BuildConfig.VERSION_NAME}" } catch (e: Exception) {}
+        // AUDIT FIX (v4.1.2): print the version in the title, from the
+        // installed package itself, so every screenshot proves which
+        // build is installed — the 4.1 vs 4.1.1 confusion must never
+        // recur. (Do NOT use BuildConfig here: AGP 8 does not generate
+        // it unless buildConfig is explicitly enabled, and run #125
+        // failed to compile on exactly that unresolved reference.)
+        try {
+            val v = packageManager.getPackageInfo(packageName, 0).versionName
+            findViewById<TextView>(R.id.textAppTitle).text = "دليلي ليبيا $v"
+        } catch (e: Exception) {}
         tts = TextToSpeech(this, this)
 
         webView = findViewById(R.id.webView)
