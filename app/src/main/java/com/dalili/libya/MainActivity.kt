@@ -18,6 +18,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ListView
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
@@ -36,6 +37,35 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/**
+ * Dalili Libya v4.0 — rebuilt from scratch for the full project
+ * document (Phase 1 complete, structured for the later phases).
+ *
+ * What is new against the patched v3.x line:
+ * - Search-first home: search a place by name, pick from a results
+ *   list, and it becomes the destination (previously only one result
+ *   was ever used, and city spinners were the only starting point).
+ * - Every route lists its road segments (road — distance), from the
+ *   real OSRM step road names.
+ * - Navigation reroutes automatically when the driver leaves the
+ *   route (previously it only advanced steps and never recalculated).
+ * - Saved places: home and work, stored on the device (tap routes,
+ *   long-press saves the current destination).
+ * - Reports with expiry (12 hours) and confirmations: a second
+ *   independent report about the same place raises the count instead
+ *   of duplicating the pin, and expired reports disappear from the
+ *   map, the list and the safety count.
+ *
+ * What is deliberately NOT claimed: traffic colours (no reliable free
+ * Libyan source — the map shows no fake traffic), a server, accounts,
+ * notifications, a web app or an admin dashboard (document Phases 2+,
+ * which need hosting decisions), and offline maps (no offline engine
+ * yet — the map still needs internet). The data models are shaped so
+ * those phases do not require an app rewrite.
+ *
+ * Proven pieces reused unchanged: Routing's OSRM client, the MapLibre
+ * bundle and the index.html JavaScript bridge API.
+ */
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var webView: WebView
     private var tts: TextToSpeech? = null
@@ -48,7 +78,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var currentLon: Double? = null
     private var lastFromName: String = ""
     private var lastToName: String = ""
-    // Last point tapped on the map (ordinary tap, not pick mode).
     private var tapLon: Double? = null
     private var tapLat: Double? = null
     private var lastFromLon: Double? = null
@@ -56,9 +85,32 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var lastToLon: Double? = null
     private var lastToLat: Double? = null
     private var travelMode: String = "driving"
-    // Map mode: "normal", "satellite", "dark" or "topo". Only one at a time.
     private var mapMode: String = "normal"
     private val httpClient = OkHttpClient()
+
+    // Live navigation state.
+    private var isNavigating = false
+    private var navStepIndex = 0
+    private var isFollowing = false
+    private var lastNavLat: Double? = null
+    private var lastNavLon: Double? = null
+    private var lastNavBearing: Float = 0f
+    private var locationManager: LocationManager? = null
+    // Off-route detection: consecutive GPS fixes further than this
+    // from the route polyline before a reroute is triggered.
+    private var offRouteCount = 0
+    private var isRerouting = false
+    private val navListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            onNavLocation(location.latitude, location.longitude, if (location.hasBearing()) location.bearing else 0f)
+        }
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+    }
+
+    // Place-search results: (short name, full name, lon, lat).
+    private var placeResults: List<PlaceResult> = emptyList()
+    private data class PlaceResult(val shortName: String, val fullName: String, val lon: Double, val lat: Double)
 
     private fun modeLabel(): String = when (travelMode) {
         "cycling" -> "بالدراجة"
@@ -68,11 +120,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun updateModeButtons() {
         val modes = listOf(
-            Triple(R.id.buttonModeCar, "driving", findViewById<Button>(R.id.buttonModeCar)),
-            Triple(R.id.buttonModeBike, "cycling", findViewById<Button>(R.id.buttonModeBike)),
-            Triple(R.id.buttonModeFoot, "walking", findViewById<Button>(R.id.buttonModeFoot))
+            Triple("driving", R.id.buttonModeCar, findViewById<Button>(R.id.buttonModeCar)),
+            Triple("cycling", R.id.buttonModeBike, findViewById<Button>(R.id.buttonModeBike)),
+            Triple("walking", R.id.buttonModeFoot, findViewById<Button>(R.id.buttonModeFoot))
         )
-        for ((_, mode, button) in modes) {
+        for ((mode, _, button) in modes) {
             if (mode == travelMode) {
                 button.setBackgroundResource(R.drawable.btn_primary_pill)
                 button.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
@@ -81,6 +133,27 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 button.setTextColor(android.graphics.Color.parseColor("#0B6B4F"))
             }
         }
+    }
+
+    /** Origin for a new route when none was set yet: current GPS
+     * location if available, otherwise the From city spinner. */
+    private fun ensureFrom() {
+        if (lastFromLon != null) return
+        val fromCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition]
+        lastFromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
+        lastFromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
+        lastFromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
+    }
+
+    /** One entry point for every "this point is the destination" path:
+     * place-search pick, exact-place search, map tap, saved place. */
+    private fun setDestinationAndRoute(lon: Double, lat: Double, name: String) {
+        ensureFrom()
+        lastToLon = lon
+        lastToLat = lat
+        lastToName = name
+        PlacesStore.pushRecent(this, RecentDestination(name, lat, lon))
+        refetchCurrentRoute()
     }
 
     private fun refetchCurrentRoute() {
@@ -99,8 +172,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     routes = found
                     selectedRoute = found.firstOrNull()
                     if (found.isEmpty()) {
-                        findViewById<TextView>(R.id.textStatus).text = "لم يتم العثور على مسار ${modeLabel()} بين المدينتين."
+                        findViewById<TextView>(R.id.textStatus).text = "لم يتم العثور على مسار ${modeLabel()}."
                         findViewById<TextView>(R.id.textRoutes).text = ""
+                        findViewById<TextView>(R.id.textSegments).text = ""
                     } else {
                         showRoutes(fromName, toName)
                         selectedRoute?.let { showRouteOnMap(it) }
@@ -114,25 +188,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }.start()
     }
 
-    // Live navigation state: real GPS tracking, not a slider simulation.
-    private var isNavigating = false
-    private var navStepIndex = 0
-    private var isFollowing = false
-    private var lastNavLat: Double? = null
-    private var lastNavLon: Double? = null
-    private var lastNavBearing: Float = 0f
-    private var locationManager: LocationManager? = null
-    private val navListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            onNavLocation(location.latitude, location.longitude, if (location.hasBearing()) location.bearing else 0f)
-        }
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        tts = TextToSpeech(this, this)
 
         webView = findViewById(R.id.webView)
         webView.settings.javaScriptEnabled = true
@@ -149,22 +208,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             @JavascriptInterface
             fun onDestinationPicked(lon: Double, lat: Double) {
                 runOnUiThread {
-                    // Exact point tapped on the map becomes the
-                    // destination, replacing the city centre. If no
-                    // route origin was set yet, use the same origin
-                    // logic as the Find button (current location or
-                    // the From city).
-                    if (lastFromLon == null) {
-                        val fromCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition]
-                        lastFromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
-                        lastFromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
-                        lastFromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
-                    }
-                    lastToLon = lon
-                    lastToLat = lat
-                    lastToName = "نقطة مختارة على الخريطة"
+                    setDestinationAndRoute(lon, lat, "نقطة مختارة على الخريطة")
                     Toast.makeText(this@MainActivity, "تم اختيار الوجهة من الخريطة — جارٍ حساب المسار إليها…", Toast.LENGTH_SHORT).show()
-                    refetchCurrentRoute()
                 }
             }
             @JavascriptInterface
@@ -181,8 +226,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             @JavascriptInterface
             fun onMapDragged() {
                 runOnUiThread {
-                    // User dragged the map during navigation: pause
-                    // following and offer the recenter button.
                     if (isNavigating && isFollowing) {
                         isFollowing = false
                         try { findViewById<Button>(R.id.buttonRecenter).visibility = View.VISIBLE } catch (e: Exception) {}
@@ -196,8 +239,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 refreshReportsOnMap()
                 selectedRoute?.let { showRouteOnMap(it) }
                 // A reload resets the page's map-mode flags, so re-apply
-                // the mode if it was not normal, or the button text and
-                // the map would disagree after "reload map".
+                // the mode if it was not normal.
                 when (mapMode) {
                     "satellite" -> webView.evaluateJavascript("window.setSatellite(true);", null)
                     "dark" -> webView.evaluateJavascript("window.setDark(true);", null)
@@ -212,6 +254,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         webView.loadUrl("file:///android_asset/www/index.html")
 
+        // City spinners (default route Zliten → Tripoli, as before).
         val spinnerFrom: Spinner = findViewById(R.id.spinnerFrom)
         val spinnerTo: Spinner = findViewById(R.id.spinnerTo)
         val cityNames = LIBYAN_CITIES.map { it.name }
@@ -221,38 +264,87 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         spinnerTo.adapter = adapter
         spinnerFrom.setSelection(cityNames.indexOf("زليتن"))
         spinnerTo.setSelection(cityNames.indexOf("طرابلس"))
-        // If the user picks a city manually after using current location,
-        // the city becomes the origin again instead of silently keeping GPS.
-        spinnerFrom.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                useCurrentLocation = false
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
 
-        val spinnerReport: Spinner = findViewById(R.id.spinnerReportType)
-        val reportTypes = listOf("زحام", "حادث", "صيانة", "إغلاق", "طريق ترابي")
+        // Report types (document §5).
+        val reportTypes = listOf("حادث مروري", "ازدحام شديد", "إغلاق طريق", "أعمال صيانة", "حفرة أو تلف في الطريق", "تجمع مياه أو عائق", "خطر مؤقت على الطريق")
         val reportAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, reportTypes)
         reportAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        spinnerReport.adapter = reportAdapter
+        findViewById<Spinner>(R.id.spinnerReportType).adapter = reportAdapter
 
-        tts = TextToSpeech(this, this)
+        setupSearch()
+        setupDirections()
+        setupModesAndMap()
+        setupSheets()
+        setupNavigationControls()
+        setupDetails()
+        updateSavedButtons()
+        refreshReportsList()
+    }
 
-        findViewById<Button>(R.id.buttonSwap).setOnClickListener {
-            val fromPos = spinnerFrom.selectedItemPosition
-            val toPos = spinnerTo.selectedItemPosition
-            spinnerFrom.setSelection(toPos)
-            spinnerTo.setSelection(fromPos)
-            Toast.makeText(this, "تم تبديل الاتجاه", Toast.LENGTH_SHORT).show()
+    // ---------- Search: place results list ----------
+
+    private fun setupSearch() {
+        findViewById<Button>(R.id.buttonSearchPlace).setOnClickListener {
+            val query = findViewById<EditText>(R.id.editPlaceSearch).text.toString().trim()
+            if (query.isEmpty()) {
+                Toast.makeText(this, "اكتب اسم مكان أو مدينة أو عنوان أولًا", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            findViewById<TextView>(R.id.textStatus).text = "جارٍ البحث عن «$query»…"
+            Thread {
+                try {
+                    val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+                    val url = java.net.URL("https://nominatim.openstreetmap.org/search?format=json&q=$encoded&countrycodes=ly&limit=5")
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.setRequestProperty("User-Agent", "DaliliLibya/4.0")
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 15000
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val arr = org.json.JSONArray(body)
+                    val results = mutableListOf<PlaceResult>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        val full = o.optString("display_name", query)
+                        val short = full.split(",").take(2).joinToString(", ").trim()
+                        results.add(PlaceResult(short.ifBlank { full }, full, o.getDouble("lon"), o.getDouble("lat")))
+                    }
+                    runOnUiThread {
+                        placeResults = results
+                        val listView = findViewById<ListView>(R.id.listPlaceResults)
+                        if (results.isEmpty()) {
+                            listView.visibility = View.GONE
+                            findViewById<TextView>(R.id.textStatus).text = "لم يُعثر على «$query» في خريطة ليبيا."
+                            Toast.makeText(this, "لم يُعثر على هذا المكان — جرّب اسم شارع أو حي مع اسم المدينة، أو اختر النقطة بالضغط على الخريطة.", Toast.LENGTH_LONG).show()
+                        } else {
+                            listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, results.map { it.shortName })
+                            listView.visibility = View.VISIBLE
+                            findViewById<TextView>(R.id.textStatus).text = "اختر مكانًا من النتائج ليكون وجهتك."
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        findViewById<TextView>(R.id.textStatus).text = "تعذر البحث عن المكان: ${e.message}. تحقق من الاتصال بالإنترنت."
+                    }
+                }
+            }.start()
         }
+        findViewById<ListView>(R.id.listPlaceResults).onItemClickListener =
+            AdapterView.OnItemClickListener { _, _, position, _ ->
+                val picked = placeResults.getOrNull(position) ?: return@OnItemClickListener
+                findViewById<ListView>(R.id.listPlaceResults).visibility = View.GONE
+                Toast.makeText(this, "الوجهة: ${picked.fullName}", Toast.LENGTH_LONG).show()
+                setDestinationAndRoute(picked.lon, picked.lat, picked.fullName)
+            }
+    }
 
-        findViewById<Button>(R.id.buttonLocation).setOnClickListener {
-            requestLocation()
-        }
+    // ---------- Directions ----------
+
+    private fun setupDirections() {
+        findViewById<Button>(R.id.buttonLocation).setOnClickListener { requestLocation() }
 
         findViewById<Button>(R.id.buttonFind).setOnClickListener {
-            val fromCity = LIBYAN_CITIES[spinnerFrom.selectedItemPosition]
-            val toCity = LIBYAN_CITIES[spinnerTo.selectedItemPosition]
+            val fromCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition]
+            val toCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerTo).selectedItemPosition]
             val fromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
             val fromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
             val fromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
@@ -273,7 +365,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         if (found.isEmpty()) {
                             findViewById<TextView>(R.id.textStatus).text = "لم يتم العثور على مسار بين المدينتين."
                             findViewById<TextView>(R.id.textRoutes).text = ""
+                            findViewById<TextView>(R.id.textSegments).text = ""
                         } else {
+                            PlacesStore.pushRecent(this, RecentDestination(toCity.name, toCity.lat, toCity.lon))
                             showRoutes(fromName, toCity.name)
                             selectedRoute?.let { showRouteOnMap(it) }
                         }
@@ -286,11 +380,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }.start()
         }
 
-        // Exact destination: search a street, neighbourhood or place
-        // by name (Nominatim / OpenStreetMap, restricted to Libya),
-        // or pick the exact point on the map. Either replaces the
-        // city-centre destination, which was the precision problem:
-        // "Tripoli" alone only ever meant the centre of Tripoli.
+        findViewById<Button>(R.id.buttonSwap).setOnClickListener {
+            val fromPos = findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition
+            val toPos = findViewById<Spinner>(R.id.spinnerTo).selectedItemPosition
+            findViewById<Spinner>(R.id.spinnerFrom).setSelection(toPos)
+            findViewById<Spinner>(R.id.spinnerTo).setSelection(fromPos)
+            Toast.makeText(this, "تم تبديل الاتجاه", Toast.LENGTH_SHORT).show()
+        }
+
+        // Exact place inside the destination (single best match).
         findViewById<Button>(R.id.buttonSearchDestination).setOnClickListener {
             val query = findViewById<EditText>(R.id.editDestinationSearch).text.toString().trim()
             if (query.isEmpty()) {
@@ -303,7 +401,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val encoded = java.net.URLEncoder.encode(query, "UTF-8")
                     val url = java.net.URL("https://nominatim.openstreetmap.org/search?format=json&q=$encoded&countrycodes=ly&limit=1")
                     val conn = url.openConnection() as java.net.HttpURLConnection
-                    conn.setRequestProperty("User-Agent", "DaliliLibya/3.8")
+                    conn.setRequestProperty("User-Agent", "DaliliLibya/4.0")
                     conn.connectTimeout = 15000
                     conn.readTimeout = 15000
                     val body = conn.inputStream.bufferedReader().readText()
@@ -320,17 +418,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val dLon = first.getDouble("lon")
                     val dName = first.optString("display_name", query)
                     runOnUiThread {
-                        if (lastFromLon == null) {
-                            val fromCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition]
-                            lastFromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
-                            lastFromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
-                            lastFromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
-                        }
-                        lastToLon = dLon
-                        lastToLat = dLat
-                        lastToName = dName
                         Toast.makeText(this, "الوجهة الدقيقة: $dName", Toast.LENGTH_LONG).show()
-                        refetchCurrentRoute()
+                        setDestinationAndRoute(dLon, dLat, dName)
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
@@ -339,12 +428,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }.start()
         }
+
         findViewById<Button>(R.id.buttonPickDestination).setOnClickListener {
             webView.evaluateJavascript("window.setPickDestination(true);", null)
             Toast.makeText(this, "اضغط الآن على النقطة الدقيقة في الخريطة لتكون وجهتك", Toast.LENGTH_LONG).show()
         }
-        // Tapped-place card: route to the tapped point, or close the
-        // card (clearing its pin) and bring the bottom sheet back.
+
+        // Tapped-place card actions.
         findViewById<Button>(R.id.buttonUseTapDestination).setOnClickListener {
             val lon = tapLon
             val lat = tapLat
@@ -353,16 +443,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 return@setOnClickListener
             }
             findViewById<View>(R.id.tapCard).visibility = View.GONE
-            if (lastFromLon == null) {
-                val fromCity = LIBYAN_CITIES[findViewById<Spinner>(R.id.spinnerFrom).selectedItemPosition]
-                lastFromLat = if (useCurrentLocation && currentLat != null) currentLat!! else fromCity.lat
-                lastFromLon = if (useCurrentLocation && currentLon != null) currentLon!! else fromCity.lon
-                lastFromName = if (useCurrentLocation) "موقعي الحالي" else fromCity.name
-            }
-            lastToLon = lon
-            lastToLat = lat
-            lastToName = "نقطة مختارة على الخريطة"
-            refetchCurrentRoute()
+            setDestinationAndRoute(lon, lat, "نقطة مختارة على الخريطة")
         }
         findViewById<Button>(R.id.buttonCloseTap).setOnClickListener {
             findViewById<View>(R.id.tapCard).visibility = View.GONE
@@ -372,9 +453,48 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        // Travel mode: car / bike / foot. Changing the mode re-fetches
-        // the current route with the OSRM profile for that mode, so the
-        // distance, route shape and estimated time all change accordingly.
+        // Saved places: tap routes, long-press saves the destination.
+        setupSavedPlaceButton(R.id.buttonHomePlace, "home", "المنزل")
+        setupSavedPlaceButton(R.id.buttonWorkPlace, "work", "العمل")
+    }
+
+    private fun setupSavedPlaceButton(buttonId: Int, kind: String, label: String) {
+        val button = findViewById<Button>(buttonId)
+        button.setOnClickListener {
+            val saved = PlacesStore.getSaved(this, kind)
+            if (saved == null) {
+                Toast.makeText(this, "لا يوجد $label محفوظ بعد — اضغط مطولًا على زر $label لحفظ الوجهة الحالية", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "الوجهة: $label — ${saved.name}", Toast.LENGTH_SHORT).show()
+                setDestinationAndRoute(saved.lon, saved.lat, saved.name)
+            }
+        }
+        button.setOnLongClickListener {
+            val dLon = lastToLon
+            val dLat = lastToLat
+            if (dLon == null || dLat == null) {
+                Toast.makeText(this, "اختر وجهة أولًا ثم اضغط مطولًا لحفظها", Toast.LENGTH_SHORT).show()
+            } else {
+                PlacesStore.setSaved(this, SavedPlace(kind, lastToName, dLat, dLon))
+                updateSavedButtons()
+                Toast.makeText(this, "تم حفظ $label: $lastToName", Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
+    }
+
+    private fun updateSavedButtons() {
+        try {
+            findViewById<Button>(R.id.buttonHomePlace).text =
+                if (PlacesStore.getSaved(this, "home") != null) "المنزل ✓" else "المنزل"
+            findViewById<Button>(R.id.buttonWorkPlace).text =
+                if (PlacesStore.getSaved(this, "work") != null) "العمل ✓" else "العمل"
+        } catch (e: Exception) {}
+    }
+
+    // ---------- Travel modes and map modes ----------
+
+    private fun setupModesAndMap() {
         findViewById<Button>(R.id.buttonModeCar).setOnClickListener {
             travelMode = "driving"; updateModeButtons(); refetchCurrentRoute()
         }
@@ -386,9 +506,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         updateModeButtons()
 
-        // Map types, like Google's map-type sheet: normal, satellite,
-        // dark, topographic. Exactly one is active; tapping the active
-        // one returns to normal. Button texts stay in sync with mapMode.
         fun setMapMode(mode: String) {
             val newMode = if (mode == mapMode) "normal" else mode
             mapMode = newMode
@@ -412,9 +529,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<Button>(R.id.buttonDarkMap).setOnClickListener { setMapMode("dark") }
         findViewById<Button>(R.id.buttonTopoMap).setOnClickListener { setMapMode("topo") }
 
-        // Recovery buttons for the white-map / lost-route cases: reload
-        // the whole map page (route and reports are re-applied on finish),
-        // and re-fit the selected route after the user has panned away.
         findViewById<Button>(R.id.buttonReloadMap).setOnClickListener {
             webView.reload()
             Toast.makeText(this, "جارٍ إعادة تحميل الخريطة…", Toast.LENGTH_SHORT).show()
@@ -428,21 +542,60 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 Toast.makeText(this, "تم عرض المسار كاملًا على الخريطة", Toast.LENGTH_SHORT).show()
             }
         }
-
-        findViewById<Button>(R.id.buttonNextRoute).setOnClickListener {
-            if (routes.isEmpty()) {
-                Toast.makeText(this, "ابحث عن المسارات أولًا", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
+        findViewById<Button>(R.id.button3d).setOnClickListener {
+            // 3D needs the vector map: return to normal first if a
+            // non-vector mode is on, keeping button texts in sync.
+            if (mapMode != "normal") {
+                mapMode = "normal"
+                webView.evaluateJavascript("window.setSatellite(false);", null)
+                findViewById<Button>(R.id.buttonSatellite).text = "خريطة القمر الصناعي"
+                findViewById<Button>(R.id.buttonDarkMap).text = "خريطة داكنة"
+                findViewById<Button>(R.id.buttonTopoMap).text = "خريطة التضاريس"
             }
-            val currentIndex = routes.indexOf(selectedRoute)
-            val nextIndex = if (currentIndex < 0) 0 else (currentIndex + 1) % routes.size
-            selectedRoute = routes[nextIndex]
-            showRoutes(lastFromName, lastToName)
-            selectedRoute?.let { showRouteOnMap(it) }
-            Toast.makeText(this, "المسار ${nextIndex + 1} معروض على الخريطة", Toast.LENGTH_SHORT).show()
+            is3d = !is3d
+            webView.evaluateJavascript("window.set3d($is3d);", null)
+            Toast.makeText(this, if (is3d) "عرض ثلاثي الأبعاد مفعّل — انتقل إلى منطقة مبانٍ" else "عرض مسطح", Toast.LENGTH_SHORT).show()
         }
+    }
 
-        // Navigation banner controls: stop navigation, and recenter after dragging.
+    // ---------- Sheets (search / details panels) ----------
+
+    private fun setupSheets() {
+        // The expanded search card and the bottom sheet are stacked in
+        // one FrameLayout, so while the search panel is open the bottom
+        // card is hidden entirely; it returns when search closes or a
+        // route is found. The two panels are never open together.
+        findViewById<Button>(R.id.buttonToggleSearch).setOnClickListener {
+            val details = findViewById<View>(R.id.topDetails)
+            val button = findViewById<Button>(R.id.buttonToggleSearch)
+            if (details.visibility == View.VISIBLE) {
+                details.visibility = View.GONE
+                button.text = "بحث"
+                findViewById<View>(R.id.bottomCard).visibility = View.VISIBLE
+            } else {
+                details.visibility = View.VISIBLE
+                button.text = "إخفاء البحث"
+                findViewById<View>(R.id.bottomCard).visibility = View.GONE
+            }
+        }
+        findViewById<Button>(R.id.buttonToggleDetails).setOnClickListener {
+            val details = findViewById<View>(R.id.scrollDetails)
+            val button = findViewById<Button>(R.id.buttonToggleDetails)
+            if (details.visibility == View.VISIBLE) {
+                details.visibility = View.GONE
+                button.text = "إظهار المزيد من التفاصيل"
+            } else {
+                details.visibility = View.VISIBLE
+                button.text = "إخفاء التفاصيل"
+                findViewById<View>(R.id.topDetails).visibility = View.GONE
+                findViewById<Button>(R.id.buttonToggleSearch).text = "بحث"
+            }
+        }
+    }
+
+    // ---------- Navigation ----------
+
+    private fun setupNavigationControls() {
         findViewById<Button>(R.id.buttonNavStop).setOnClickListener {
             stopNavigation()
             Toast.makeText(this, "تم إيقاف الملاحة", Toast.LENGTH_SHORT).show()
@@ -456,7 +609,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 webView.evaluateJavascript("window.followUser($lon, $lat, $lastNavBearing);", null)
             }
         }
-
         findViewById<Button>(R.id.buttonVoice).setOnClickListener {
             val route = selectedRoute
             if (route == null) {
@@ -474,171 +626,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             startNavigation(route)
         }
-
-        // Top search bar: collapses to a slim bar so the map stays visible.
-        // Audit fix: the expanded search card and the bottom sheet are
-        // stacked in one FrameLayout, so on a phone screen they overlap
-        // and the bottom card covers the Find button. While the search
-        // panel is open, the bottom card is hidden entirely; it returns
-        // as soon as the search panel is closed or a route is found.
-        findViewById<Button>(R.id.buttonToggleSearch).setOnClickListener {
-            val details = findViewById<View>(R.id.topDetails)
-            val button = findViewById<Button>(R.id.buttonToggleSearch)
-            if (details.visibility == View.VISIBLE) {
-                details.visibility = View.GONE
-                button.text = "بحث"
-                findViewById<View>(R.id.bottomCard).visibility = View.VISIBLE
-            } else {
-                details.visibility = View.VISIBLE
-                button.text = "إخفاء البحث"
-                findViewById<View>(R.id.bottomCard).visibility = View.GONE
-            }
-        }
-
-        // Bottom sheet collapsed by default so the map stays visible.
-        // The summary + voice button stay outside the details area.
-        // Audit fix: expanding the details also collapses the search
-        // panel, so the two panels can never be open at the same time.
-        findViewById<Button>(R.id.buttonToggleDetails).setOnClickListener {
-            val details = findViewById<View>(R.id.scrollDetails)
-            val button = findViewById<Button>(R.id.buttonToggleDetails)
-            if (details.visibility == View.VISIBLE) {
-                details.visibility = View.GONE
-                button.text = "إظهار المزيد من التفاصيل"
-            } else {
-                details.visibility = View.VISIBLE
-                button.text = "إخفاء التفاصيل"
-                findViewById<View>(R.id.topDetails).visibility = View.GONE
-                findViewById<Button>(R.id.buttonToggleSearch).text = "بحث"
-            }
-        }
-
-        findViewById<Button>(R.id.button3d).setOnClickListener {
-            // 3D needs the vector map: if a non-vector map mode is on,
-            // return to normal first (and keep button texts in sync),
-            // or the 3D flight would run on flat photos with no buildings.
-            if (mapMode != "normal") {
-                mapMode = "normal"
-                webView.evaluateJavascript("window.setSatellite(false);", null)
-                findViewById<Button>(R.id.buttonSatellite).text = "خريطة القمر الصناعي"
-                findViewById<Button>(R.id.buttonDarkMap).text = "خريطة داكنة"
-                findViewById<Button>(R.id.buttonTopoMap).text = "خريطة التضاريس"
-            }
-            is3d = !is3d
-            // set3d() in index.html flies to a building area at zoom 16
-            // with pitch 60 and re-adds the buildings layer. setPitch()
-            // alone did nothing visible at country zoom, because the
-            // buildings layer only renders at zoom 15+.
-            webView.evaluateJavascript("window.set3d($is3d);", null)
-            Toast.makeText(this, if (is3d) "عرض ثلاثي الأبعاد مفعّل — انتقل إلى منطقة مبانٍ" else "عرض مسطح", Toast.LENGTH_SHORT).show()
-        }
-
-        findViewById<Button>(R.id.buttonPreviewAnim).setOnClickListener {
-            val route = selectedRoute
-            if (route == null || route.coordinates.isEmpty()) {
+        findViewById<Button>(R.id.buttonNextRoute).setOnClickListener {
+            if (routes.isEmpty()) {
                 Toast.makeText(this, "ابحث عن المسارات أولًا", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            isPreviewAnimating = !isPreviewAnimating
-            if (isPreviewAnimating) {
-                webView.evaluateJavascript("window.startPreviewAnimation();", null)
-                findViewById<Button>(R.id.buttonPreviewAnim).text = "إيقاف معاينة الرحلة المتحركة"
-            } else {
-                webView.evaluateJavascript("window.stopPreviewAnimation();", null)
-                findViewById<Button>(R.id.buttonPreviewAnim).text = "تشغيل معاينة الرحلة المتحركة"
-            }
+            val currentIndex = routes.indexOf(selectedRoute)
+            val nextIndex = if (currentIndex < 0) 0 else (currentIndex + 1) % routes.size
+            selectedRoute = routes[nextIndex]
+            showRoutes(lastFromName, lastToName)
+            selectedRoute?.let { showRouteOnMap(it) }
+            Toast.makeText(this, "المسار ${nextIndex + 1} معروض على الخريطة", Toast.LENGTH_SHORT).show()
         }
-
-        findViewById<SeekBar>(R.id.seekPreview).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    // Manual dragging overrides the automatic animation.
-                    webView.evaluateJavascript("window.stopPreviewAnimation();", null)
-                    isPreviewAnimating = false
-                    try { findViewById<Button>(R.id.buttonPreviewAnim).text = "تشغيل معاينة الرحلة المتحركة" } catch (e: Exception) {}
-                    webView.evaluateJavascript("window.previewRoute(${progress / 100.0});", null)
-                }
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-
-        findViewById<Button>(R.id.buttonReport).setOnClickListener {
-            val route = selectedRoute
-            if (route == null || route.coordinates.isEmpty()) {
-                Toast.makeText(this, "اختر مسارًا أولًا", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            val mid = route.coordinates[route.coordinates.size / 2]
-            val type = spinnerReport.selectedItem.toString()
-            ReportsStore.add(this, RoadReport(type, mid.second, mid.first, System.currentTimeMillis()))
-            refreshReportsList()
-            refreshReportsOnMap()
-            Toast.makeText(this, "تم حفظ البلاغ محليًا على جهازك فقط. بلاغ مستخدم، غير مؤكد رسميًا.", Toast.LENGTH_SHORT).show()
-        }
-
-        findViewById<Button>(R.id.buttonFuel).setOnClickListener {
-            val route = selectedRoute
-            if (route == null || route.coordinates.isEmpty()) {
-                Toast.makeText(this, "اختر مسارًا أولًا", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            findViewById<TextView>(R.id.textFuel).text = "جارٍ البحث عن محطات وقود على طول المسار…"
-            Thread {
-                try {
-                    // Search at three points along the real route, not only the midpoint.
-                    val points = listOf(0.25, 0.5, 0.75).map { frac ->
-                        val idx = (frac * (route.coordinates.size - 1)).toInt().coerceIn(0, route.coordinates.size - 1)
-                        route.coordinates[idx]
-                    }
-                    val foundNames = linkedSetOf<String>()
-                    for ((lon, lat) in points) {
-                        val url = "https://nominatim.openstreetmap.org/search?format=json&q=fuel&viewbox=${lon - 0.5},${lat + 0.5},${lon + 0.5},${lat - 0.5}&bounded=1&limit=5"
-                        val request = Request.Builder().url(url).header("User-Agent", "DaliliLibya/1.0").build()
-                        httpClient.newCall(request).execute().use { response ->
-                            val body = response.body?.string() ?: "[]"
-                            val arr = org.json.JSONArray(body)
-                            for (i in 0 until arr.length()) {
-                                foundNames.add(arr.getJSONObject(i).optString("display_name"))
-                            }
-                        }
-                    }
-                    val names = foundNames.filter { it.isNotBlank() }.take(10)
-                    runOnUiThread {
-                        findViewById<TextView>(R.id.textFuel).text =
-                            if (names.isEmpty()) "لم يتم العثور على محطات وقود قريبة من المسار في بيانات OpenStreetMap."
-                            else names.joinToString("\n• ", prefix = "محطات على طول المسار:\n• ")
-                    }
-                } catch (e: Exception) {
-                    runOnUiThread {
-                        findViewById<TextView>(R.id.textFuel).text = "تعذر البحث عن محطات الوقود: ${e.message}"
-                    }
-                }
-            }.start()
-        }
-
-        refreshReportsList()
-    }
-
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale("ar"))
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                tts?.language = Locale.getDefault()
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        stopNavigation()
-        tts?.shutdown()
-        super.onDestroy()
     }
 
     @SuppressLint("MissingPermission")
     private fun startNavigation(route: RouteInfo) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            // No GPS: fall back to reading all Arabic instructions once.
             val text = route.steps.joinToString(". ") { it.text }
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nav")
             Toast.makeText(this, "بدون إذن الموقع، تمت قراءة التعليمات كاملة بدل الملاحة الحية.", Toast.LENGTH_LONG).show()
@@ -647,8 +651,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         isNavigating = true
         navStepIndex = 0
         isFollowing = true
-        // Google Maps-style navigation view: hide the search and route
-        // sheets and show only the instruction banner on top.
+        offRouteCount = 0
         try {
             findViewById<View>(R.id.navBar).visibility = View.VISIBLE
             findViewById<View>(R.id.topCard).visibility = View.GONE
@@ -681,14 +684,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         } catch (e: Exception) {}
     }
 
-    // Navigation banner: current instruction on top, remaining distance,
-    // time and arrival time below it, from the real per-step OSRM values.
     private fun updateNavBanner(route: RouteInfo, stepIndex: Int) {
         try {
             val stepText = if (stepIndex in route.steps.indices) route.steps[stepIndex].text else "ابدأ الرحلة"
             findViewById<TextView>(R.id.textNavStep).text = stepText
-            // Next-turn preview, like Google's "ثم ↪" chip: the step after
-            // the current one, with a turn arrow from its modifier.
             val nextTextView = findViewById<TextView>(R.id.textNavNext)
             if (stepIndex + 1 in route.steps.indices) {
                 val next = route.steps[stepIndex + 1]
@@ -719,11 +718,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val arrival = java.util.Calendar.getInstance()
             arrival.add(java.util.Calendar.MINUTE, remMin.roundToInt())
             val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
-            // Google shows short remainders in metres, not "0.6 كم".
             val remText = if (remKm < 1.0) "${(remKm * 1000).roundToInt()} متر" else "${"%.1f".format(remKm)} كم"
-            // Straight-line distance to the exact destination point,
-            // so the user always knows how close they really are,
-            // even when the remaining route distance differs.
             var destText = ""
             val curLat = lastNavLat
             val curLon = lastNavLon
@@ -751,18 +746,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         lastNavLat = lat
         lastNavLon = lon
         lastNavBearing = bearing
-        // Driving view: while following is on, the map centres on the
-        // user at street zoom and rotates to the heading, so the street
-        // being driven on is always in the centre, like Google Maps.
         if (isFollowing) {
             webView.evaluateJavascript("window.followUser($lon, $lat, $bearing);", null)
         }
-        // Arrival: previously there was no arrival signal at all — the
-        // app only stopped when the last step's manoeuvre was passed,
-        // with no message. Now, within 100 metres of the exact
-        // destination point (GPS in a city is typically accurate to
-        // 10–30 m, so 100 m avoids false misses from road offset),
-        // announce arrival clearly and stop navigation.
+        // Arrival: within 100 metres of the exact destination point.
         val destLat = lastToLat
         val destLon = lastToLon
         if (destLat != null && destLon != null) {
@@ -775,6 +762,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 findViewById<TextView>(R.id.textStatus).text = "وصلت إلى وجهتك: $destName"
                 return
             }
+        }
+        // v4.0 rerouting: if the driver is further than 150 metres from
+        // the route polyline on two consecutive fixes, the old route is
+        // abandoned and a new one is calculated from the current GPS
+        // position to the same destination — without stopping navigation
+        // or showing the search sheets again.
+        val distToRoute = Routing.distanceToRoute(lat, lon, route)
+        if (distToRoute > 150.0) {
+            offRouteCount++
+        } else {
+            offRouteCount = 0
+        }
+        if (offRouteCount >= 2 && !isRerouting) {
+            offRouteCount = 0
+            rerouteFromCurrent(lat, lon)
+            return
         }
         updateNavBanner(route, navStepIndex)
         // Speak the next step when the user is within 200 metres of its manoeuvre.
@@ -795,6 +798,41 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun rerouteFromCurrent(lat: Double, lon: Double) {
+        val tlon = lastToLon ?: return
+        val tlat = lastToLat ?: return
+        isRerouting = true
+        lastFromLon = lon
+        lastFromLat = lat
+        lastFromName = "موقعي الحالي"
+        Thread {
+            try {
+                val found = Routing.fetchRoutes(lon, lat, tlon, tlat, travelMode)
+                runOnUiThread {
+                    isRerouting = false
+                    if (found.isEmpty()) {
+                        Toast.makeText(this, "تعذر إعادة حساب المسار — أبقيت المسار القديم.", Toast.LENGTH_LONG).show()
+                        return@runOnUiThread
+                    }
+                    routes = found
+                    selectedRoute = found.firstOrNull()
+                    val newRoute = selectedRoute ?: return@runOnUiThread
+                    navStepIndex = 0
+                    showRouteOnMap(newRoute)
+                    updateNavBanner(newRoute, 0)
+                    val firstText = if (newRoute.steps.isNotEmpty()) newRoute.steps[0].text else "ابدأ الرحلة"
+                    tts?.speak("انحرفت عن المسار، تمت إعادة حساب الطريق. $firstText", TextToSpeech.QUEUE_FLUSH, null, "reroute")
+                    Toast.makeText(this, "تمت إعادة حساب المسار من موقعك الحالي", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    isRerouting = false
+                    Toast.makeText(this, "تعذر إعادة حساب المسار: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     private fun distanceMetres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val r = 6371000.0
         val dLat = Math.toRadians(lat2 - lat1)
@@ -804,12 +842,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return r * c
     }
 
+    // ---------- Route display ----------
+
     private fun showRoutes(fromName: String, toName: String) {
         val consumptionRaw = findViewById<EditText>(R.id.editConsumption).text.toString().toDoubleOrNull() ?: 8.0
         val consumption = if (consumptionRaw > 0) consumptionRaw else 8.0
         val priceRaw = findViewById<EditText>(R.id.editFuelPrice).text.toString().toDoubleOrNull() ?: 0.15
         val price = if (priceRaw >= 0) priceRaw else 0.15
-        val reports = ReportsStore.load(this)
+        val reports = ReportsStore.active(this)
         val sb = StringBuilder()
         sb.append("من $fromName إلى $toName — ${modeLabel()}\n")
         val sortedByTime = routes.sortedBy { it.durationMin }
@@ -819,7 +859,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val cost = fuel * price
             val fastest = route == sortedByTime.firstOrNull()
             val cheapest = route == sortedByCost.firstOrNull()
-            // Safety is only from reports whose coordinates fall near this route.
             val minLat = route.coordinates.minOfOrNull { it.second } ?: 0.0
             val maxLat = route.coordinates.maxOfOrNull { it.second } ?: 0.0
             val minLon = route.coordinates.minOfOrNull { it.first } ?: 0.0
@@ -829,8 +868,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             sb.append("\nالمسار ${index + 1}: ${"%.1f".format(route.distanceKm)} كم، ${route.durationMin.roundToInt()} دقيقة${fuelText}، درجة أمان تقديرية ${Routing.safetyScore(nearCount)}")
             if (fastest) sb.append(" — الأسرع")
             if (cheapest) sb.append(" — الأقل مسافة")
-            // Fuel saving vs the longest alternative, like Google's
-            // "this route saves X% fuel": real, from OSRM distances only.
             val maxDist = routes.maxOfOrNull { it.distanceKm } ?: route.distanceKm
             if (cheapest && maxDist > route.distanceKm) {
                 val saving = ((maxDist - route.distanceKm) / maxDist * 100).roundToInt()
@@ -839,13 +876,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (route == selectedRoute) sb.append(" — المعروض على الخريطة")
         }
         sb.append("\n\nدرجة الأمان تقدير من بلاغات قريبة من هذا المسار فقط، وليست تصنيفًا رسميًا.")
-        // A new route replaces any tapped-place card, so the two
-        // bottom cards never stack on top of each other.
         try { findViewById<View>(R.id.tapCard).visibility = View.GONE } catch (e: Exception) {}
         findViewById<TextView>(R.id.textRoutes).text = sb.toString()
+        // Road segments of the displayed route (document requirement).
+        val shown = selectedRoute
+        findViewById<TextView>(R.id.textSegments).text = if (shown == null) {
+            ""
+        } else {
+            val segs = Routing.segments(shown)
+            if (segs.isEmpty()) {
+                "مقاطع الطريق: لا توجد أسماء طرق متاحة لهذا المسار في بيانات الخريطة."
+            } else {
+                "مقاطع الطريق (المسار المعروض):\n" + segs.joinToString("\n") { (road, km) -> "• $road — ${"%.1f".format(km)} كم" }
+            }
+        }
         findViewById<TextView>(R.id.textStatus).text = "تم العثور على ${routes.size} مسارًا — ${modeLabel()}."
-        // Once a route is found, collapse both panels to a slim top bar
-        // and a short bottom summary, so the map itself dominates the screen.
         try {
             findViewById<View>(R.id.topDetails).visibility = View.GONE
             findViewById<Button>(R.id.buttonToggleSearch).text = "بحث"
@@ -858,8 +903,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun showRouteOnMap(route: RouteInfo) {
         val js = "window.setRoute(${route.geometryJson});"
         webView.evaluateJavascript(js, null)
-        // Mark the exact destination with the red pin, so the route
-        // end is visible on the map and not just a city name.
         val dLon = lastToLon
         val dLat = lastToLat
         if (dLon != null && dLat != null) {
@@ -868,9 +911,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         drawAllRoutes()
     }
 
-    // Google-style route overview: all routes drawn at once (selected
-    // bright green, alternatives darker blue) with a time pill at each
-    // route's midpoint, like Google's "39 د / 40 د" labels on the map.
     private fun drawAllRoutes() {
         try {
             if (routes.isEmpty()) return
@@ -885,14 +925,103 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         } catch (e: Exception) {}
     }
 
+    // ---------- Reports, fuel, preview, location ----------
+
+    private fun setupDetails() {
+        findViewById<Button>(R.id.buttonReport).setOnClickListener {
+            val route = selectedRoute
+            if (route == null || route.coordinates.isEmpty()) {
+                Toast.makeText(this, "اختر مسارًا أولًا", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val mid = route.coordinates[route.coordinates.size / 2]
+            val type = findViewById<Spinner>(R.id.spinnerReportType).selectedItem.toString()
+            ReportsStore.add(this, RoadReport(type, mid.second, mid.first, System.currentTimeMillis()))
+            refreshReportsList()
+            refreshReportsOnMap()
+            Toast.makeText(this, "تم حفظ البلاغ محليًا على جهازك فقط. بلاغ مستخدم، غير مؤكد رسميًا، وينتهي بعد 12 ساعة إن لم يُؤكَّد.", Toast.LENGTH_LONG).show()
+        }
+
+        findViewById<Button>(R.id.buttonFuel).setOnClickListener {
+            val route = selectedRoute
+            if (route == null || route.coordinates.isEmpty()) {
+                Toast.makeText(this, "اختر مسارًا أولًا", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            findViewById<TextView>(R.id.textFuel).text = "جارٍ البحث عن محطات وقود على طول المسار…"
+            Thread {
+                try {
+                    val points = listOf(0.25, 0.5, 0.75).map { frac ->
+                        val idx = (frac * (route.coordinates.size - 1)).toInt().coerceIn(0, route.coordinates.size - 1)
+                        route.coordinates[idx]
+                    }
+                    val foundNames = linkedSetOf<String>()
+                    for ((lon, lat) in points) {
+                        val url = "https://nominatim.openstreetmap.org/search?format=json&q=fuel&viewbox=${lon - 0.5},${lat + 0.5},${lon + 0.5},${lat - 0.5}&bounded=1&limit=5"
+                        val request = Request.Builder().url(url).header("User-Agent", "DaliliLibya/4.0").build()
+                        httpClient.newCall(request).execute().use { response ->
+                            val body = response.body?.string() ?: "[]"
+                            val arr = org.json.JSONArray(body)
+                            for (i in 0 until arr.length()) {
+                                foundNames.add(arr.getJSONObject(i).optString("display_name"))
+                            }
+                        }
+                    }
+                    val names = foundNames.filter { it.isNotBlank() }.take(10)
+                    runOnUiThread {
+                        findViewById<TextView>(R.id.textFuel).text =
+                            if (names.isEmpty()) "لم يتم العثور على محطات وقود قريبة من المسار في بيانات OpenStreetMap."
+                            else names.joinToString("\n• ", prefix = "محطات على طول المسار:\n• ")
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        findViewById<TextView>(R.id.textFuel).text = "تعذر البحث عن محطات الوقود: ${e.message}"
+                    }
+                }
+            }.start()
+        }
+
+        findViewById<Button>(R.id.buttonPreviewAnim).setOnClickListener {
+            val route = selectedRoute
+            if (route == null || route.coordinates.isEmpty()) {
+                Toast.makeText(this, "ابحث عن المسارات أولًا", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            isPreviewAnimating = !isPreviewAnimating
+            if (isPreviewAnimating) {
+                webView.evaluateJavascript("window.startPreviewAnimation();", null)
+                findViewById<Button>(R.id.buttonPreviewAnim).text = "إيقاف معاينة الرحلة المتحركة"
+            } else {
+                webView.evaluateJavascript("window.stopPreviewAnimation();", null)
+                findViewById<Button>(R.id.buttonPreviewAnim).text = "تشغيل معاينة الرحلة المتحركة"
+            }
+        }
+
+        findViewById<SeekBar>(R.id.seekPreview).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    webView.evaluateJavascript("window.stopPreviewAnimation();", null)
+                    isPreviewAnimating = false
+                    try { findViewById<Button>(R.id.buttonPreviewAnim).text = "تشغيل معاينة الرحلة المتحركة" } catch (e: Exception) {}
+                    webView.evaluateJavascript("window.previewRoute(${progress / 100.0});", null)
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+    }
+
     private fun refreshReportsList() {
-        val reports = ReportsStore.load(this)
-        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+        val reports = ReportsStore.active(this)
+        val now = System.currentTimeMillis()
         val text = if (reports.isEmpty()) {
-            "لا توجد بلاغات محلية بعد. البلاغات محفوظة على جهازك فقط."
+            "لا توجد بلاغات سارية الآن. البلاغات محفوظة على جهازك فقط، وتنتهي بعد 12 ساعة."
         } else {
             reports.joinToString("\n") { r ->
-                "• ${r.type} — ${fmt.format(Date(r.timeMillis))} — بلاغ مستخدم، غير مؤكد رسميًا."
+                val ageMin = ((now - r.timeMillis) / 60000).toInt()
+                val ageText = if (ageMin < 60) "قبل $ageMin دقيقة" else "قبل ${ageMin / 60} ساعة"
+                val confText = if (r.confirmations > 1) "• تأكيد من ${r.confirmations} بلاغات مستقلة" else "• بلاغ واحد — يحتاج تأكيدًا"
+                "• ${r.type} — $ageText $confText — بلاغ مستخدم، غير مؤكد رسميًا."
             }
         }
         findViewById<TextView>(R.id.textReports).text = text
@@ -900,7 +1029,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun refreshReportsOnMap() {
         webView.evaluateJavascript("window.clearReports();", null)
-        val reports = ReportsStore.load(this)
+        val reports = ReportsStore.active(this)
         for (r in reports) {
             val js = "window.addReport(${r.lon}, ${r.lat}, '${r.type}');"
             webView.evaluateJavascript(js, null)
@@ -929,12 +1058,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                requestLocation()
-            } else {
-                Toast.makeText(this, "تم رفض إذن الموقع، لذلك لا يمكن استخدام موقعك الحالي.", Toast.LENGTH_LONG).show()
+        if (requestCode == 1001 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            requestLocation()
+        }
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            val result = tts?.setLanguage(Locale("ar"))
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                tts?.language = Locale.getDefault()
             }
         }
+    }
+
+    override fun onDestroy() {
+        stopNavigation()
+        tts?.shutdown()
+        super.onDestroy()
     }
 }
